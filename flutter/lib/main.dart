@@ -360,7 +360,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: Colors.transparent,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onPressed: _busy ? null : _signInWithGoogle,
+                        onTap: _busy ? null : _signInWithGoogle,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: Row(
