@@ -195,7 +195,6 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _error;
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
-    clientId: '734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com',
     serverClientId: '734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com',
     scopes: ['email', 'profile', 'openid'],
     hostedDomain: 'iiitnr.edu.in',
@@ -419,8 +418,30 @@ class _LoginScreenState extends State<LoginScreen> {
                       labelText: 'Attendance Server URL',
                       prefixIcon: const Icon(Icons.dns_outlined),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      helperText: 'Default local server: http://127.0.0.1:8040',
+                      helperText: 'Select connection mode below or type custom URL',
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.usb, size: 16),
+                        label: const Text('USB (127.0.0.1)', style: TextStyle(fontSize: 12)),
+                        onPressed: () => setState(() => _serverCtrl.text = 'http://127.0.0.1:8040'),
+                      ),
+                      ActionChip(
+                        avatar: const Icon(Icons.wifi, size: 16),
+                        label: const Text('Wi-Fi (192.168.2.6)', style: TextStyle(fontSize: 12)),
+                        onPressed: () => setState(() => _serverCtrl.text = 'http://192.168.2.6:8040'),
+                      ),
+                      ActionChip(
+                        avatar: const Icon(Icons.cloud_outlined, size: 16),
+                        label: const Text('Online Tunnel', style: TextStyle(fontSize: 12)),
+                        onPressed: () => setState(() => _serverCtrl.text = 'https://ivnbj-117-250-161-222.run.pinggy-free.link'),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 20),
 
