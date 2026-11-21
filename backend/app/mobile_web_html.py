@@ -54,7 +54,7 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
 
       <!-- Google GSI Button -->
       <div id="g_id_onload"
-           data-client_id="573762860094-6krco6tidvgjgltm3mga47hho1f0ni32.apps.googleusercontent.com"
+           data-client_id="734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com"
            data-context="signin"
            data-ux_mode="popup"
            data-callback="handleGoogleLogin"

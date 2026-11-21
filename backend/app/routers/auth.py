@@ -68,8 +68,7 @@ def google_login(body: GoogleLoginIn, db: Session = Depends(get_db)):
 
     # Domain enforcement: Must be official institute account!
     if not email.endswith("@" + s.institute_domain):
-        if not (s.dev_mode and email == "heroshowroomchurcha@gmail.com"):
-            raise api_error(403, "AUTH_DOMAIN", f"Only official @{s.institute_domain} Google accounts are permitted.")
+        raise api_error(403, "AUTH_DOMAIN", f"Only official @{s.institute_domain} Google accounts are permitted.")
 
     if not claims.get("email_verified", False):
         raise api_error(403, "EMAIL_NOT_VERIFIED", "Google email is not verified.")
