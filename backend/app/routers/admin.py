@@ -96,7 +96,7 @@ def attempts(date: dt.date, a: Actor = Depends(admin_only), db: Session = Depend
 # ---------------------------------------------------------------- phones
 
 def device_json(d: Device) -> dict:
-    return {"id": d.id, "scholar": d.person.name, "email": d.person.email, "roll_no": d.person.roll_no,
+    return {"id": d.id, "device_id": d.device_id, "scholar": d.person.name, "email": d.person.email, "roll_no": d.person.roll_no,
             "platform": d.platform, "model": d.model, "status": d.status, "reason": d.reason,
             "created_at": d.created_at.isoformat(timespec="minutes")}
 

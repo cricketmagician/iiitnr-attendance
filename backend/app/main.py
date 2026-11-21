@@ -73,6 +73,7 @@ def create_app() -> FastAPI:
         from .guard_kiosk_html import GUARD_KIOSK_HTML
         return HTMLResponse(content=GUARD_KIOSK_HTML)
 
+    @app.get("/", response_class=HTMLResponse, tags=["mobile"])
     @app.get("/m", response_class=HTMLResponse, tags=["mobile"])
     @app.get("/mobile", response_class=HTMLResponse, tags=["mobile"])
     def mobile_web():

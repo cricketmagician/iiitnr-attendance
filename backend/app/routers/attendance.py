@@ -250,7 +250,7 @@ def test_verify_face(body: TestVerifyIn, db: Session = Depends(get_db), clk: Clo
     qr_status = "Skipped"
     if body.qr_token:
         w = open_window(db, clk.now())
-        session = w.session if w else "M"
+        session = w.session if w else "morning"
         ok, reason = verify_guard_qr(body.qr_token, session)
         if not ok:
             return {

@@ -119,6 +119,8 @@ def dev_token(body: DevLoginIn, db: Session = Depends(get_db)):
         raise api_error(403, "DEV_DISABLED", "dev-token is disabled in production.")
 
     email = body.email.lower().strip()
+    if not email.endswith("@" + s.institute_domain):
+        raise api_error(403, "AUTH_DOMAIN", f"Only official @{s.institute_domain} emails are allowed.")
     person = db.scalar(select(Person).where(Person.email == email))
     if person is None:
         raise api_error(404, "NOT_FOUND", f"Person {email} not found.")

@@ -52,8 +52,16 @@ def verify_guard_qr(qr_string: str, expected_session: str, max_drift_seconds: in
 
     _, session, slot_str, sig = parts
 
+    def _norm(s: str) -> str:
+        s = str(s).strip().lower()
+        if s.startswith("m"):
+            return "morning"
+        if s.startswith("e"):
+            return "evening"
+        return s
+
     # Check session match if expected_session is provided
-    if expected_session and session != expected_session:
+    if expected_session and _norm(session) != _norm(expected_session):
         return False, f"QR code is for {session} session, but current session is {expected_session}."
 
     try:
