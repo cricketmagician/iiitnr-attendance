@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from .clock import clock
 from .config import get_settings
 from .db import Base, engine
-from .routers import admin, attendance, leave
+from .routers import admin, attendance, auth, leave
 from .security import api_error
 
 log = logging.getLogger("att")
@@ -59,6 +59,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="IIITNR Scholar Attendance & Leave", version="1.0", lifespan=lifespan)
     app.include_router(attendance.router)
+    app.include_router(auth.router)
     app.include_router(leave.router)
     app.include_router(admin.router)
 

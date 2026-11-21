@@ -9,6 +9,8 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- HTML5 QR Code Scanner Library for Web & iOS -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- Google Identity Services (GIS) Web SDK -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     .oval-guide {
       border: 3px dashed #10b981;
@@ -38,6 +40,48 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
 
   <!-- Main Container -->
   <main class="flex-1 w-full max-w-md mx-auto p-4 flex flex-col justify-start space-y-4">
+
+    <!-- Official Google Sign In (@iiitnr.edu.in) -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col items-center">
+      <div class="w-full flex items-center justify-between mb-3">
+        <label class="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+          Institute Login:
+        </label>
+        <span id="google-status-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-bold">
+          @iiitnr.edu.in
+        </span>
+      </div>
+
+      <!-- Google GSI Button -->
+      <div id="g_id_onload"
+           data-client_id="573762860094-6krco6tidvgjgltm3mga47hho1f0ni32.apps.googleusercontent.com"
+           data-context="signin"
+           data-ux_mode="popup"
+           data-callback="handleGoogleLogin"
+           data-auto_prompt="false">
+      </div>
+
+      <div class="g_id_signin w-full flex justify-center mb-1"
+           data-type="standard"
+           data-shape="rectangular"
+           data-theme="filled_black"
+           data-text="signin_with"
+           data-size="large"
+           data-logo_alignment="left">
+      </div>
+
+      <!-- Logged In Profile Banner (Hidden initially) -->
+      <div id="google-user-banner" class="hidden w-full bg-slate-950/80 border border-emerald-600/40 rounded-xl p-3 flex items-center space-x-3 mt-2">
+        <div class="w-9 h-9 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-sm font-bold text-emerald-400" id="google-user-avatar">
+          🎓
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs font-bold text-white truncate" id="google-user-name">Scholar Name</p>
+          <p class="text-[11px] text-slate-400 truncate" id="google-user-email">email@iiitnr.edu.in</p>
+        </div>
+        <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">Verified</span>
+      </div>
+    </div>
 
     <!-- Step 0: Scholar Account & Device Lock -->
     <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
@@ -372,6 +416,48 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
         btnVerify.disabled = false;
         btnVerify.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> <span>Step 3: Confirm & Mark Attendance</span>';
       }
+    }
+
+    function handleGoogleLogin(response) {
+      const idToken = response.credential;
+      fetch('/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_token: idToken })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok) {
+          document.getElementById('google-user-banner').classList.remove('hidden');
+          const gsiBtn = document.querySelector('.g_id_signin');
+          if (gsiBtn) gsiBtn.classList.add('hidden');
+          document.getElementById('google-user-name').textContent = data.person.name || data.person.email;
+          document.getElementById('google-user-email').textContent = data.person.email;
+
+          // Select or add logged-in email to dropdown
+          const select = document.getElementById('scholar-select');
+          let found = false;
+          for (let opt of select.options) {
+            if (opt.value === data.person.email) {
+              select.value = data.person.email;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            const newOpt = document.createElement('option');
+            newOpt.value = data.person.email;
+            newOpt.textContent = data.person.email + ' (Google Verified)';
+            select.appendChild(newOpt);
+            select.value = data.person.email;
+          }
+          onScholarChange();
+          alert('✅ Welcome, ' + (data.person.name || data.person.email) + '! You are authenticated with your official IIITNR Google account.');
+        } else {
+          alert('❌ Google Login Failed: ' + (data.detail?.message || JSON.stringify(data)));
+        }
+      })
+      .catch(err => alert('Network error: ' + err));
     }
 
     onScholarChange();

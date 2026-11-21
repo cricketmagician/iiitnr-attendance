@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     jwt_email_claim: str = "email"
     jwt_audience: str = ""
 
+    # Google Workspace OAuth2 Client ID for @iiitnr.edu.in
+    google_client_id: str = ""
+
     # Dev only: enables POST /auth/dev-token. Never true on the live server.
     dev_mode: bool = False
 
