@@ -219,6 +219,7 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
     let scannedQrToken = null;
     let capturedBase64 = null;
     let html5QrScanner = null;
+    let currentAuthToken = localStorage.getItem('att_auth_token') || '';
 
     const scholarSelect = document.getElementById('scholar-select');
     const deviceLockBadge = document.getElementById('device-lock-badge');
@@ -241,6 +242,10 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
         deviceLockBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300';
         deviceLockBadge.textContent = 'Proxy Test Mode';
         deviceLockDesc.textContent = 'Scholar 1 is locked to Google Pixel 8a. Submitting from this iPhone will test Device Lock + Face AI mismatch rejection!';
+      } else if (email.includes('heroshowroomchurcha')) {
+        deviceLockBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300';
+        deviceLockBadge.textContent = 'Google SSO Verified';
+        deviceLockDesc.textContent = 'Authenticated via Google Workspace SSO. Ready for biometric attendance check.';
       } else {
         deviceLockBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300';
         deviceLockBadge.textContent = 'New Phone Enrollment';
@@ -346,9 +351,13 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
       btnVerify.innerHTML = '<svg class="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> <span>Verifying Device, QR & Face...</span>';
 
       try {
+        const reqHeaders = { 'Content-Type': 'application/json' };
+        if (currentAuthToken) {
+          reqHeaders['Authorization'] = 'Bearer ' + currentAuthToken;
+        }
         const res = await fetch('/att/face/test-verify', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: reqHeaders,
           body: JSON.stringify({
             email: email,
             qr_token: scannedQrToken,
@@ -428,6 +437,8 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
       .then(res => res.json())
       .then(data => {
         if (data.ok) {
+          currentAuthToken = data.token;
+          localStorage.setItem('att_auth_token', data.token);
           document.getElementById('google-user-banner').classList.remove('hidden');
           const gsiBtn = document.querySelector('.g_id_signin');
           if (gsiBtn) gsiBtn.classList.add('hidden');
