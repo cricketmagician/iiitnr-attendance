@@ -1,0 +1,50 @@
+# Python & Virtual Environments
+backend/.venv/
+backend/__pycache__/
+**/.venv/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Databases & Secrets
+*.db
+*.sqlite3
+.env
+*.pem
+*.key
+
+# Logs
+*.log
+
+# OS & Editor
+.DS_Store
+._*
+.metadata_never_index
+.idea/
+**/.idea/
+.vscode/
+**/.vscode/
+
+# Flutter & Dart Build Artifacts (Crucial to ignore)
+flutter/build/
+flutter/.dart_tool/
+flutter/.flutter-plugins
+flutter/.flutter-plugins-dependencies
+flutter/.pub-cache/
+flutter/.pub/
+flutter/android/.gradle/
+flutter/android/.kotlin/
+flutter/android/local.properties
+flutter/macos/Flutter/ephemeral/
+**/build/
+**/.dart_tool/
+**/.gradle/
+
+# Android Build Outputs
+*.apk
+*.aab
+
+# Models (downloaded via download_models.sh)
+backend/models/*.onnx
+backend/cloudflared

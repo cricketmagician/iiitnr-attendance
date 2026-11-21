@@ -1,0 +1,7 @@
+email,name,roll_no,programme,funding,joining_date,department,supervisor_email,roles
+scholar1@iiitnr.edu.in,Example Scholar,PHD2024001,PhD,institute,2024-08-01,Science and Mathematics,guide1@iiitnr.edu.in,scholar
+mtech1@iiitnr.edu.in,Example MTech,MT2025001,MTech,institute,2025-07-21,CSE,guide1@iiitnr.edu.in,scholar
+guide1@iiitnr.edu.in,Example Supervisor,,,,,Science and Mathematics,,supervisor
+hod.sm@iiitnr.edu.in,Example HoD,,,,,Science and Mathematics,,supervisor;hod
+dean.ri@iiitnr.edu.in,Dean R&I,,,,,,,dean_ri
+attendance.office@iiitnr.edu.in,Attendance Office,,,,,,,admin

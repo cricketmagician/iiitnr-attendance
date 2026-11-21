@@ -1,0 +1,16 @@
+# Add these to the IIITNR app's pubspec.yaml under `dependencies:`
+# (versions are the ones this module was written against; newer majors may change APIs).
+# Needs Flutter 3.22 or later (Dart 3.4+).
+  http: ^1.2.2
+  crypto: ^3.0.3
+  pointycastle: ^3.9.1
+  flutter_secure_storage: ^9.2.2
+  uuid: ^4.4.2
+  device_info_plus: ^10.1.2
+  android_id: ^0.4.0
+  local_auth: ^2.3.0
+  flutter_local_notifications: ^17.2.3
+  timezone: ^0.9.4
+  intl: ^0.19.0
+  file_picker: ^8.1.2
+  share_plus: ^10.1.2
