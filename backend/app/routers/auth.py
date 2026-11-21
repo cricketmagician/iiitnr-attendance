@@ -74,10 +74,23 @@ def google_login(body: GoogleLoginIn, db: Session = Depends(get_db)):
     if not claims.get("email_verified", False):
         raise api_error(403, "EMAIL_NOT_VERIFIED", "Google email is not verified.")
 
-    # Check if student/staff is enrolled in attendance database
+    # Check if student/staff is enrolled in attendance database; auto-enroll if verified institute account
     person = db.scalar(select(Person).where(Person.email == email))
     if person is None:
-        raise api_error(403, "NOT_ENROLLED", f"Account {email} is not enrolled in the attendance system. Please contact the academic office.")
+        name = claims.get("name") or email.split("@")[0].replace(".", " ").title()
+        roll_no = email.split("@")[0].upper()
+        person = Person(
+            email=email,
+            name=name,
+            roll_no=roll_no,
+            programme="PhD" if "phd" in email else "MTech" if "mtech" in email else "Scholar",
+            funding="institute",
+            roles="scholar",
+            active=True,
+        )
+        db.add(person)
+        db.commit()
+        db.refresh(person)
 
     if not person.active:
         raise api_error(403, "ACCOUNT_INACTIVE", "Your attendance account is currently deactivated.")
