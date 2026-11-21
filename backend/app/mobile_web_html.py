@@ -41,6 +41,20 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
   <!-- Main Container -->
   <main class="flex-1 w-full max-w-md mx-auto p-4 flex flex-col justify-start space-y-4">
 
+    <!-- Android APK Download Banner -->
+    <a href="/download/app.apk" download class="w-full bg-gradient-to-r from-blue-700/80 to-indigo-700/80 hover:from-blue-600 hover:to-indigo-600 border border-blue-500/40 rounded-2xl p-3 flex items-center justify-between shadow-lg text-decoration-none transition">
+      <div class="flex items-center space-x-3">
+        <span class="text-2xl">🤖</span>
+        <div>
+          <p class="text-xs font-bold text-white">Download Android App (APK)</p>
+          <p class="text-[10px] text-blue-200">Official IIITNR Attendance App for Android</p>
+        </div>
+      </div>
+      <span class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-white text-blue-900 shadow">
+        ⬇️ Download APK
+      </span>
+    </a>
+
     <!-- Official Google Sign In (@iiitnr.edu.in) -->
     <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col items-center">
       <div class="w-full flex items-center justify-between mb-3">

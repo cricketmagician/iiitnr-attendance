@@ -80,6 +80,27 @@ def create_app() -> FastAPI:
         from .mobile_web_html import MOBILE_WEB_HTML
         return HTMLResponse(content=MOBILE_WEB_HTML)
 
+    @app.get("/download/app.apk", tags=["download"])
+    @app.get("/download/apk", tags=["download"])
+    @app.get("/app.apk", tags=["download"])
+    def download_apk():
+        """Direct 1-click download of the Android APK."""
+        from fastapi.responses import FileResponse
+        candidates = [
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../flutter/build/app/outputs/flutter-apk/app-release.apk")),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../flutter/build/app/outputs/apk/release/app-release.apk")),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../flutter/build/app/outputs/flutter-apk/app-debug.apk")),
+            "/Users/neerajsingh/Documents/IIIT NR Attendance/iiitnr-scholar-attendance/flutter/build/app/outputs/apk/release/app-release.apk",
+        ]
+        for p in candidates:
+            if os.path.exists(p) and os.path.getsize(p) > 1000:
+                return FileResponse(
+                    p,
+                    media_type="application/vnd.android.package-archive",
+                    filename="IIITNR-Scholar-Attendance.apk"
+                )
+        raise api_error(404, "NOT_FOUND", "APK is currently compiling. Please retry in 30 seconds.")
+
     if get_settings().dev_mode:
         @app.post("/auth/dev-token", tags=["dev"])
         def dev_token(body: DevLogin):
