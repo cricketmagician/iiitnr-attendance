@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'scholar_attendance/guard_kiosk_screen.dart';
 import 'scholar_attendance/scholar_attendance.dart';
 import 'dart:convert';
@@ -193,6 +194,13 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _busy = false;
   String? _error;
 
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    clientId: '734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com',
+    serverClientId: '734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com',
+    scopes: ['email', 'profile', 'openid'],
+    hostedDomain: 'iiitnr.edu.in',
+  );
+
   final List<Map<String, String>> _sampleAccounts = [
     {'label': 'PhD Scholar 1', 'email': 'scholar1@iiitnr.edu.in'},
     {'label': 'MTech Scholar 1', 'email': 'mtech1@iiitnr.edu.in'},
@@ -201,6 +209,53 @@ class _LoginScreenState extends State<LoginScreen> {
     {'label': 'Dean (R&I)', 'email': 'dean.ri@iiitnr.edu.in'},
     {'label': 'Attendance Office', 'email': 'attendance.office@iiitnr.edu.in'},
   ];
+
+  Future<void> _signInWithGoogle() async {
+    final serverUrl = _serverCtrl.text.trim();
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+
+    try {
+      final account = await _googleSignIn.signIn();
+      if (account == null) {
+        if (mounted) setState(() => _busy = false);
+        return;
+      }
+
+      final auth = await account.authentication;
+      final idToken = auth.idToken;
+      if (idToken == null || idToken.isEmpty) {
+        throw Exception('Unable to obtain Google ID Token.');
+      }
+
+      final res = await http.post(
+        Uri.parse('$serverUrl/auth/google'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'id_token': idToken}),
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final token = data['token'] as String;
+        final personEmail = data['person']['email'] as String;
+        widget.onLoginSuccess(personEmail, token, serverUrl);
+      } else {
+        try {
+          final data = jsonDecode(res.body);
+          final msg = data['detail']?['message'] ?? res.body;
+          setState(() => _error = 'Google login rejected: $msg');
+        } catch (_) {
+          setState(() => _error = 'Google login failed (${res.statusCode}): ${res.body}');
+        }
+      }
+    } catch (e) {
+      setState(() => _error = 'Google Sign-in error: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _signIn() async {
     final email = _emailCtrl.text.trim().toLowerCase();
@@ -285,6 +340,64 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       child: Text(_error!, style: TextStyle(color: Colors.red.shade900, fontSize: 13)),
                     ),
+
+                  // Official Google Workspace Sign-In Button
+                  Container(
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFDADCE0), width: 1.2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onPressed: _busy ? null : _signInWithGoogle,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.verified_user_outlined, size: 22, color: Color(0xFF4285F4)),
+                              const SizedBox(width: 12),
+                              Text(
+                                _busy ? 'Verifying with Google...' : 'Sign In with Google (@iiitnr.edu.in)',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF1F1F1F),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(child: Divider(color: Colors.grey.shade300)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          'OR LOCAL / DEMO LOGIN',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade500),
+                        ),
+                      ),
+                      Expanded(child: Divider(color: Colors.grey.shade300)),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
 
                   // Email input
                   TextField(
