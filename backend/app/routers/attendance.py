@@ -129,12 +129,16 @@ def _today_payload(db: Session, person: Person, now: dt.datetime) -> dict:
         select(Mark).where(Mark.person_id == person.id, Mark.date == today)).all()}
     leave = covered_by_leave(db, person.id, today)
     active_win = open_window(db, now)
+    found_dev_open = False
     sessions = []
     for w in windows(db):
         if not working:
             state = "no_session"
         elif w.session in marks:
             state = "marked"
+        elif get_settings().dev_mode and not found_dev_open:
+            state = "open"
+            found_dev_open = True
         elif active_win and active_win.session == w.session:
             state = "open"
         elif now.time() < w.start_time:
@@ -200,6 +204,12 @@ def guard_qr(db: Session = Depends(get_db), clk: Clock = Depends(get_clock)):
     """Provides current dynamic 3-second rotating QR token for Guard / Kiosk screen."""
     now = clk.now()
     w = open_window(db, now)
+    if get_settings().dev_mode:
+        marked_sessions = {m.session for m in db.scalars(
+            select(Mark).where(Mark.person_id == p.id, Mark.date == today)).all()}
+        unmarked = [win for win in windows(db) if win.session not in marked_sessions]
+        if unmarked:
+            w = unmarked[0]
     session_name = w.session if w else "morning"
     data = generate_guard_qr(session_name)
     data["session_label"] = w.label if w else "Morning"
@@ -349,6 +359,12 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
     if not (is_working_day(today, holidays_between(db, today, today)) or get_settings().dev_mode):
         _refuse(db, p, now, "", "NOT_WORKING_DAY", ip, dev_id, 409, "There is no attendance today.")
     w = open_window(db, now)
+    if get_settings().dev_mode:
+        marked_sessions = {m.session for m in db.scalars(
+            select(Mark).where(Mark.person_id == p.id, Mark.date == today)).all()}
+        unmarked = [win for win in windows(db) if win.session not in marked_sessions]
+        if unmarked:
+            w = unmarked[0]
     if w is None:
         _refuse(db, p, now, "", "OUTSIDE_WINDOW", ip, dev_id, 409,
                 "Attendance is not open now. Windows: " +
