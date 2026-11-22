@@ -48,6 +48,23 @@ async def _scheduler():
 async def lifespan(app: FastAPI):
     if os.environ.get("ATT_CREATE_TABLES", "true").lower() == "true":
         Base.metadata.create_all(engine)
+        try:
+            from .db import SessionLocal
+            from .models import Person
+            with SessionLocal() as db:
+                if db.query(Person).count() == 0:
+                    samples = [
+                        Person(email="scholar1@iiitnr.edu.in", name="Aarav Sharma", roll_no="PHD202401", programme="PhD", funding="institute", roles="scholar", active=True),
+                        Person(email="mtech1@iiitnr.edu.in", name="Priya Patel", roll_no="MT202401", programme="MTech", funding="institute", roles="scholar", active=True),
+                        Person(email="guide1@iiitnr.edu.in", name="Dr. Rajesh Guide", roll_no="FAC001", programme="Faculty", funding="institute", roles="guide", active=True),
+                        Person(email="hod.sm@iiitnr.edu.in", name="HoD SM Dept", roll_no="HOD001", programme="Faculty", funding="institute", roles="hod", active=True),
+                        Person(email="dean.ri@iiitnr.edu.in", name="Dean R&I", roll_no="DEAN001", programme="Dean", funding="institute", roles="dean", active=True),
+                        Person(email="attendance.office@iiitnr.edu.in", name="Attendance Office", roll_no="ADMIN001", programme="Staff", funding="institute", roles="admin", active=True),
+                    ]
+                    db.add_all(samples)
+                    db.commit()
+        except Exception:
+            log.exception("DB seeding error")
     task = None
     if os.environ.get("ATT_RUN_SCHEDULER", "false").lower() == "true":
         task = asyncio.create_task(_scheduler())

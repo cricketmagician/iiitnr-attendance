@@ -123,7 +123,28 @@ def dev_token(body: DevLoginIn, db: Session = Depends(get_db)):
         raise api_error(403, "AUTH_DOMAIN", f"Only official @{s.institute_domain} emails are allowed.")
     person = db.scalar(select(Person).where(Person.email == email))
     if person is None:
-        raise api_error(404, "NOT_FOUND", f"Person {email} not found.")
+        role = "scholar"
+        if "guide" in email:
+            role = "guide"
+        elif "hod" in email:
+            role = "hod"
+        elif "dean" in email:
+            role = "dean"
+        elif "office" in email or "admin" in email:
+            role = "admin"
+        name = email.split("@")[0].replace(".", " ").title()
+        person = Person(
+            email=email,
+            name=name,
+            roll_no=email.split("@")[0].upper(),
+            programme="PhD" if "phd" in email else "MTech" if "mtech" in email else "Scholar",
+            funding="institute",
+            roles=role,
+            active=True,
+        )
+        db.add(person)
+        db.commit()
+        db.refresh(person)
 
     token = issue_session_jwt(person)
     return {

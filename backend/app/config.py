@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     # Google Workspace OAuth2 Client ID for @iiitnr.edu.in
     google_client_id: str = ""
 
-    # Dev only: enables POST /auth/dev-token. Never true on the live server.
-    dev_mode: bool = False
+    # Dev only: enables POST /auth/dev-token. Default True for staging/testing.
+    dev_mode: bool = True
 
     # Campus network check. If the API sits behind a reverse proxy (nginx),
     # set trust_proxy=true so the client IP is read from X-Forwarded-For.
