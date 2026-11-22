@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  attendance-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: iiitnr-attendance-api
+    restart: always
+    ports:
+      - "8040:8040"
+    environment:
+      - PORT=8040
+      - ATT_DATABASE_URL=sqlite:////app/data/attendance.db
+      - ATT_GOOGLE_CLIENT_ID=734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com
+      - ATT_JWT_SECRET=iiitnr-attendance-secure-jwt-token-key-2026
+      - ATT_INSTITUTE_DOMAIN=iiitnr.edu.in
+      - ATT_TRUST_PROXY=true
+      - ATT_TIMEZONE=Asia/Kolkata
+      - ATT_DEV_MODE=false
+      - ATT_APK_URL=https://github.com/cricketmagician/iiitnr-attendance/releases/latest/download/app-release.apk
+    volumes:
+      - ./attendance_data:/app/data
+      - ./attendance_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8040/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

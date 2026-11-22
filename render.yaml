@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: iiitnr-attendance
+    runtime: python
+    rootDir: backend
+    buildCommand: "./download_models.sh && pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
+      - key: ATT_DATABASE_URL
+        value: sqlite:////tmp/attendance.db
+      - key: ATT_GOOGLE_CLIENT_ID
+        value: 734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com
+      - key: ATT_JWT_SECRET
+        generateValue: true
+      - key: ATT_INSTITUTE_DOMAIN
+        value: iiitnr.edu.in
+      - key: ATT_TRUST_PROXY
+        value: "true"
+      - key: ATT_TIMEZONE
+        value: Asia/Kolkata
+      - key: ATT_DEV_MODE
+        value: "false"
+      - key: ATT_APK_URL
+        value: https://github.com/cricketmagician/iiitnr-attendance/releases/latest/download/app-release.apk

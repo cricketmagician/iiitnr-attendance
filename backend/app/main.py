@@ -100,7 +100,12 @@ def create_app() -> FastAPI:
                     media_type="application/vnd.android.package-archive",
                     filename="IIITNR-Scholar-Attendance.apk"
                 )
-        raise api_error(404, "NOT_FOUND", "APK is currently compiling. Please retry in 30 seconds.")
+        from fastapi.responses import RedirectResponse
+        fallback_url = os.environ.get(
+            "ATT_APK_URL",
+            "https://github.com/cricketmagician/iiitnr-attendance/releases/latest/download/app-release.apk"
+        )
+        return RedirectResponse(url=fallback_url, status_code=302)
 
     if get_settings().dev_mode:
         @app.post("/auth/dev-token", tags=["dev"])
