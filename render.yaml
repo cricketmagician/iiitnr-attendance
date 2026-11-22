@@ -21,6 +21,6 @@ services:
       - key: ATT_TIMEZONE
         value: Asia/Kolkata
       - key: ATT_DEV_MODE
-        value: "false"
+        value: "true"
       - key: ATT_APK_URL
         value: https://github.com/cricketmagician/iiitnr-attendance/releases/latest/download/app-release.apk

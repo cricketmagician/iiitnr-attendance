@@ -82,7 +82,7 @@ class _AuthGateState extends State<AuthGate> {
 
   String? _token;
   String? _email;
-  String _serverUrl = 'http://127.0.0.1:8040';
+  String _serverUrl = 'https://iiitnr-attendance.onrender.com';
   bool _loading = true;
 
   @override
@@ -427,6 +427,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     runSpacing: 4,
                     children: [
                       ActionChip(
+                        avatar: const Icon(Icons.cloud_done, size: 16, color: Colors.teal),
+                        label: const Text('Render Cloud', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        onPressed: () => setState(() => _serverCtrl.text = 'https://iiitnr-attendance.onrender.com'),
+                      ),
+                      ActionChip(
                         avatar: const Icon(Icons.usb, size: 16),
                         label: const Text('USB (127.0.0.1)', style: TextStyle(fontSize: 12)),
                         onPressed: () => setState(() => _serverCtrl.text = 'http://127.0.0.1:8040'),
@@ -435,11 +440,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         avatar: const Icon(Icons.wifi, size: 16),
                         label: const Text('Wi-Fi (192.168.2.6)', style: TextStyle(fontSize: 12)),
                         onPressed: () => setState(() => _serverCtrl.text = 'http://192.168.2.6:8040'),
-                      ),
-                      ActionChip(
-                        avatar: const Icon(Icons.cloud_outlined, size: 16),
-                        label: const Text('Online Tunnel', style: TextStyle(fontSize: 12)),
-                        onPressed: () => setState(() => _serverCtrl.text = 'https://ivnbj-117-250-161-222.run.pinggy-free.link'),
                       ),
                     ],
                   ),
@@ -500,7 +500,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     onPressed: () {
                       final baseUrl = _serverCtrl.text.trim().isNotEmpty
                           ? _serverCtrl.text.trim()
-                          : 'http://127.0.0.1:8040';
+                          : 'https://iiitnr-attendance.onrender.com';
                       Navigator.push(
                         context,
                         MaterialPageRoute(

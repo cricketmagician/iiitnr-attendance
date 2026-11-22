@@ -55,7 +55,7 @@ class _GuardKioskScreenState extends State<GuardKioskScreen> {
       if (widget.api != null) {
         res = await widget.api!.get('/att/guard/qr') as Map<String, dynamic>;
       } else {
-        final base = widget.baseUrl ?? 'http://127.0.0.1:8040';
+        final base = widget.baseUrl ?? 'https://iiitnr-attendance.onrender.com';
         final response = await http.get(Uri.parse('$base/att/guard/qr'));
         if (response.statusCode == 200) {
           res = jsonDecode(response.body) as Map<String, dynamic>;
