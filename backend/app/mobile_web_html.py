@@ -39,7 +39,7 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
   </header>
 
   <!-- Main Container -->
-  <main class="flex-1 w-full max-w-md mx-auto p-4 flex flex-col justify-start space-y-4">
+  <main class="flex-1 w-full max-w-4xl mx-auto p-4 flex flex-col justify-start space-y-4">
 
     <!-- Android APK Download Banner -->
     <a href="/download/app.apk" download class="w-full bg-gradient-to-r from-blue-700/80 to-indigo-700/80 hover:from-blue-600 hover:to-indigo-600 border border-blue-500/40 rounded-2xl p-3 flex items-center justify-between shadow-lg text-decoration-none transition">
@@ -101,6 +101,7 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
           <button onclick="setDirectEmail('mtech1@iiitnr.edu.in')" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-blue-300 hover:bg-slate-700">MTech</button>
           <button onclick="setDirectEmail('guide1@iiitnr.edu.in')" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-purple-300 hover:bg-slate-700">Guide</button>
           <button onclick="setDirectEmail('hod.sm@iiitnr.edu.in')" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-amber-300 hover:bg-slate-700">HoD</button>
+          <button onclick="setDirectEmail('attendance.office@iiitnr.edu.in'); setTimeout(() => switchPortalTab('admin'), 400);" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-rose-300 hover:bg-slate-700">Admin Office</button>
         </div>
       </div>
 
@@ -117,6 +118,21 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
         <button onclick="logoutPortal()" class="text-[10px] text-slate-400 hover:text-rose-400 underline ml-1">Logout</button>
       </div>
     </div>
+
+    <!-- Portal Navigation Tabs: Scholar View vs Admin View -->
+    <div class="w-full max-w-md mx-auto flex items-center bg-slate-900 border border-slate-800 p-1.5 rounded-2xl shadow-sm">
+      <button id="tab-btn-scholar" onclick="switchPortalTab('scholar')"
+              class="flex-1 py-2 text-xs font-bold rounded-xl bg-blue-600 text-white shadow transition flex items-center justify-center space-x-1.5">
+        <span>👤 Scholar Attendance</span>
+      </button>
+      <button id="tab-btn-admin" onclick="switchPortalTab('admin')"
+              class="flex-1 py-2 text-xs font-bold rounded-xl text-slate-400 hover:text-white transition flex items-center justify-center space-x-1.5">
+        <span>📊 Admin Dashboard</span>
+      </button>
+    </div>
+
+    <!-- Scholar View Container -->
+    <div id="scholar-view-container" class="w-full flex flex-col space-y-4 max-w-md mx-auto">
 
     <!-- Step 0: Scholar Account & Device Lock -->
     <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
@@ -235,6 +251,103 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
           <div id="match-score-text" class="text-xs font-mono font-bold mt-1 text-right"></div>
         </div>
       </div>
+    </div>
+
+    </div> <!-- End scholar-view-container -->
+
+    <!-- Admin Portal View Container -->
+    <div id="admin-view-container" class="hidden w-full flex flex-col space-y-4 max-w-4xl mx-auto">
+      
+      <!-- Admin KPI Stats Header -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-sm">
+          <p class="text-[11px] text-slate-400 font-medium">Total Scholars</p>
+          <p class="text-xl font-bold text-white mt-1">2 Scholars</p>
+          <span class="text-[10px] text-emerald-400 font-medium">100% Active in DB</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-sm">
+          <p class="text-[11px] text-slate-400 font-medium">Today's Sessions</p>
+          <p class="text-xl font-bold text-white mt-1">3 Windows</p>
+          <span class="text-[10px] text-blue-400 font-medium">Morning · Aft · Eve</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-sm">
+          <p class="text-[11px] text-slate-400 font-medium">2FA Biometrics</p>
+          <p class="text-xl font-bold text-white mt-1">Active</p>
+          <span class="text-[10px] text-emerald-400 font-medium">3s QR + Face AI</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-sm">
+          <p class="text-[11px] text-slate-400 font-medium">Pending Reviews</p>
+          <p id="stat-pending-reviews" class="text-xl font-bold text-amber-400 mt-1">0</p>
+          <span class="text-[10px] text-slate-400 font-medium">Awaiting decision</span>
+        </div>
+      </div>
+
+      <!-- Master Monthly Attendance Register -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center space-x-2">
+              <span>📋 Master Monthly Attendance Register</span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-bold">Admin / HoD View</span>
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">Real-time authoritative attendance records across all academic programmes.</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <input type="month" id="admin-month-input" value="2026-11"
+                   class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500">
+            <button onclick="loadAdminRegister()"
+                    class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow transition">
+              Refresh
+            </button>
+            <button onclick="downloadRegisterCsv()"
+                    class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow transition flex items-center space-x-1">
+              <span>⬇️ CSV</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Scrollable Register Table -->
+        <div id="register-table-wrapper" class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
+          <div id="register-loading" class="p-8 text-center text-xs text-slate-400">Loading monthly attendance register...</div>
+          <table id="register-table" class="w-full text-left text-xs text-slate-300 hidden">
+            <!-- Rendered by JS -->
+          </table>
+        </div>
+
+        <!-- Register Code Legend -->
+        <div class="mt-3 pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+          <span class="font-semibold text-slate-300">Status Codes:</span>
+          <span class="flex items-center space-x-1"><span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">P</span><span>Present (≥2 sessions)</span></span>
+          <span class="flex items-center space-x-1"><span class="px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 font-bold text-[10px]">P*</span><span>Admin Marked</span></span>
+          <span class="flex items-center space-x-1"><span class="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold text-[10px]">L</span><span>Leave</span></span>
+          <span class="flex items-center space-x-1"><span class="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 font-bold text-[10px]">A</span><span>Absent</span></span>
+          <span class="flex items-center space-x-1"><span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-[10px]">R</span><span>Awaiting Review</span></span>
+          <span class="flex items-center space-x-1"><span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-bold text-[10px]">W</span><span>Weekend</span></span>
+        </div>
+      </div>
+
+      <!-- Pending Day Reviews Section -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+        <h2 class="text-sm font-bold text-white flex items-center space-x-2 mb-2">
+          <span>⚖️ Day Attendance Reviews (Fewer than 2 Sessions)</span>
+        </h2>
+        <p class="text-xs text-slate-400 mb-3">When a scholar misses a session due to lab work or device trouble, they submit an explanation for Admin decision.</p>
+        <div id="reviews-container" class="space-y-2 text-xs">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Device Lock & Approval Queue -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+        <h2 class="text-sm font-bold text-white flex items-center space-x-2 mb-2">
+          <span>📱 Phone Registration Queue (1-Device Lock)</span>
+        </h2>
+        <p class="text-xs text-slate-400 mb-3">Enforces 1 phone per scholar. In dev mode, phones are auto-approved.</p>
+        <div id="devices-container" class="space-y-2 text-xs">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
     </div>
 
   </main>
@@ -597,6 +710,275 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
         } catch (_) {}
       }
     });
+
+
+    // --- Portal Navigation: Scholar vs Admin Tab ---
+    function switchPortalTab(tab) {
+      const scholarContainer = document.getElementById('scholar-view-container');
+      const adminContainer = document.getElementById('admin-view-container');
+      const btnScholar = document.getElementById('tab-btn-scholar');
+      const btnAdmin = document.getElementById('tab-btn-admin');
+
+      if (tab === 'scholar') {
+        scholarContainer.classList.remove('hidden');
+        adminContainer.classList.add('hidden');
+        btnScholar.className = 'flex-1 py-2 text-xs font-bold rounded-xl bg-blue-600 text-white shadow transition flex items-center justify-center space-x-1.5';
+        btnAdmin.className = 'flex-1 py-2 text-xs font-bold rounded-xl text-slate-400 hover:text-white transition flex items-center justify-center space-x-1.5';
+      } else {
+        scholarContainer.classList.add('hidden');
+        adminContainer.classList.remove('hidden');
+        btnAdmin.className = 'flex-1 py-2 text-xs font-bold rounded-xl bg-indigo-600 text-white shadow transition flex items-center justify-center space-x-1.5';
+        btnScholar.className = 'flex-1 py-2 text-xs font-bold rounded-xl text-slate-400 hover:text-white transition flex items-center justify-center space-x-1.5';
+        loadAdminRegister();
+        loadAdminReviews();
+        loadAdminDevices();
+      }
+    }
+
+    async function ensureAdminToken() {
+      if (currentAuthToken) {
+        try {
+          const payload = JSON.parse(atob(currentAuthToken.split('.')[1]));
+          const roles = String(payload.roles || '');
+          if (roles.includes('admin') || roles.includes('hod') || roles.includes('guide')) {
+            return currentAuthToken;
+          }
+        } catch (_) {}
+      }
+      // Auto fetch admin token for attendance office
+      const res = await fetch('/auth/dev-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'attendance.office@iiitnr.edu.in', role: 'admin' })
+      });
+      const data = await res.json();
+      if (data.ok && data.token) {
+        return data.token;
+      }
+      return currentAuthToken;
+    }
+
+    async function loadAdminRegister() {
+      const m = document.getElementById('admin-month-input').value || '2026-11';
+      const wrapper = document.getElementById('register-loading');
+      const table = document.getElementById('register-table');
+      wrapper.classList.remove('hidden');
+      wrapper.textContent = 'Loading register for ' + m + '...';
+      table.classList.add('hidden');
+
+      try {
+        const token = await ensureAdminToken();
+        const res = await fetch(`/admin/register?m=${m}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) {
+          wrapper.textContent = 'Error loading register: HTTP ' + res.status;
+          return;
+        }
+        const data = await res.json();
+        renderRegisterTable(data);
+        wrapper.classList.add('hidden');
+        table.classList.remove('hidden');
+      } catch (e) {
+        wrapper.textContent = 'Failed to load register: ' + e;
+      }
+    }
+
+    function renderRegisterTable(rows) {
+      const table = document.getElementById('register-table');
+      if (!rows || rows.length === 0) {
+        table.innerHTML = '<tbody><tr><td class="p-4 text-center text-slate-400">No scholars found.</td></tr></tbody>';
+        return;
+      }
+
+      const days = rows[0].days || [];
+      let headHtml = `
+        <thead class="bg-slate-900 border-b border-slate-800 text-[11px] font-semibold text-slate-400 uppercase tracking-wider sticky top-0">
+          <tr>
+            <th class="p-2.5 pl-3 whitespace-nowrap">Roll No</th>
+            <th class="p-2.5 whitespace-nowrap">Scholar Name</th>
+            <th class="p-2.5 whitespace-nowrap">Prog</th>
+      `;
+      for (let d of days) {
+        const dayNum = d.date.slice(-2);
+        headHtml += `<th class="p-1 text-center font-mono w-6 min-w-[24px]">${dayNum}</th>`;
+      }
+      headHtml += `
+            <th class="p-2 text-center text-emerald-400">P</th>
+            <th class="p-2 text-center text-teal-400">P*</th>
+            <th class="p-2 text-center text-blue-400">L</th>
+            <th class="p-2 text-center text-rose-400">A</th>
+            <th class="p-2 pr-3 text-center text-amber-400 whitespace-nowrap">Review</th>
+          </tr>
+        </thead>
+      `;
+
+      let bodyHtml = '<tbody class="divide-y divide-slate-800/60">';
+      for (let r of rows) {
+        const t = r.totals || { P: 0, 'P*': 0, L: 0, A: 0, R: 0 };
+        bodyHtml += `
+          <tr class="hover:bg-slate-900/50 transition">
+            <td class="p-2.5 pl-3 font-mono font-bold text-white whitespace-nowrap">${r.roll_no || ''}</td>
+            <td class="p-2.5 font-medium text-slate-200 whitespace-nowrap">${r.name || ''}</td>
+            <td class="p-2.5 text-slate-400 whitespace-nowrap">${r.programme || ''}</td>
+        `;
+
+        for (let d of (r.days || [])) {
+          let badge = '';
+          const c = d.code;
+          if (c === 'P') {
+            badge = '<span class="px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold">P</span>';
+          } else if (c === 'P*') {
+            badge = '<span class="px-1 py-0.5 rounded bg-teal-500/20 text-teal-300 font-bold">P*</span>';
+          } else if (c === 'L') {
+            badge = '<span class="px-1 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold">L</span>';
+          } else if (c === 'A') {
+            badge = '<span class="px-1 py-0.5 rounded bg-rose-500/20 text-rose-400 font-bold">A</span>';
+          } else if (c === 'R') {
+            badge = '<span class="px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">R</span>';
+          } else if (c === 'W') {
+            badge = '<span class="text-slate-600 font-medium">W</span>';
+          } else {
+            badge = '<span class="text-slate-700">-</span>';
+          }
+          bodyHtml += `<td class="p-1 text-center font-mono text-[11px]">${badge}</td>`;
+        }
+
+        bodyHtml += `
+            <td class="p-2 text-center font-bold text-emerald-400 font-mono">${t.P || 0}</td>
+            <td class="p-2 text-center font-bold text-teal-400 font-mono">${t['P*'] || 0}</td>
+            <td class="p-2 text-center font-bold text-blue-400 font-mono">${t.L || 0}</td>
+            <td class="p-2 text-center font-bold text-rose-400 font-mono">${t.A || 0}</td>
+            <td class="p-2 pr-3 text-center font-bold text-amber-400 font-mono">${t.R || 0}</td>
+          </tr>
+        `;
+      }
+      bodyHtml += '</tbody>';
+
+      table.innerHTML = headHtml + bodyHtml;
+    }
+
+    async function downloadRegisterCsv() {
+      const m = document.getElementById('admin-month-input').value || '2026-11';
+      const token = await ensureAdminToken();
+      const res = await fetch(`/admin/register?m=${m}&format=csv`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `iiitnr-attendance-${m}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } else {
+        alert('Failed to download CSV');
+      }
+    }
+
+    async function loadAdminReviews() {
+      const container = document.getElementById('reviews-container');
+      const badge = document.getElementById('stat-pending-reviews');
+      try {
+        const token = await ensureAdminToken();
+        const res = await fetch('/admin/reviews?status=pending', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const revs = await res.json();
+        badge.textContent = revs.length;
+        if (revs.length === 0) {
+          container.innerHTML = '<div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-slate-400 text-center">No pending day reviews. All days complete or on approved leave.</div>';
+          return;
+        }
+        let html = '';
+        for (let r of revs) {
+          html += `
+            <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-2">
+              <div>
+                <p class="font-bold text-white">${r.scholar.name} (${r.scholar.roll_no}) · ${r.date}</p>
+                <p class="text-[11px] text-slate-400">Marked: ${r.sessions_marked || 'None'} · Reason: ${r.scholar_reason || 'No explanation submitted'}</p>
+              </div>
+              <div class="flex items-center space-x-2">
+                <button onclick="decideReview(${r.id}, 'absent')" class="px-2.5 py-1 bg-rose-950/60 border border-rose-800 text-rose-300 rounded-lg text-xs hover:bg-rose-900">Mark Absent</button>
+                <button onclick="decideReview(${r.id}, 'present')" class="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-500">Mark Present</button>
+              </div>
+            </div>
+          `;
+        }
+        container.innerHTML = html;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function decideReview(id, decision) {
+      const remark = prompt(`Remark for marking ${decision}:`, decision === 'present' ? 'Approved by admin' : 'Absent');
+      if (!remark) return;
+      const token = await ensureAdminToken();
+      const res = await fetch(`/admin/reviews/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ decision, remark })
+      });
+      if (res.ok) {
+        alert('Saved.');
+        loadAdminReviews();
+        loadAdminRegister();
+      } else {
+        const d = await res.json();
+        alert('Error: ' + (d.detail?.message || JSON.stringify(d)));
+      }
+    }
+
+    async function loadAdminDevices() {
+      const container = document.getElementById('devices-container');
+      try {
+        const token = await ensureAdminToken();
+        const res = await fetch('/admin/devices?status=pending', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const devs = await res.json();
+        if (devs.length === 0) {
+          container.innerHTML = '<div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-slate-400 text-center">No devices waiting for approval. Device lock bypass active in dev mode.</div>';
+          return;
+        }
+        let html = '';
+        for (let d of devs) {
+          html += `
+            <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <p class="font-bold text-white">${d.scholar} (${d.model || d.platform})</p>
+                <p class="text-[11px] text-slate-400">Device ID: ${d.device_id}</p>
+              </div>
+              <div class="flex items-center space-x-2">
+                <button onclick="decideDevice(${d.id}, false)" class="px-2.5 py-1 bg-rose-900/60 text-rose-300 rounded-lg text-xs">Reject</button>
+                <button onclick="decideDevice(${d.id}, true)" class="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold">Approve</button>
+              </div>
+            </div>
+          `;
+        }
+        container.innerHTML = html;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function decideDevice(pk, approve) {
+      const token = await ensureAdminToken();
+      const res = await fetch(`/admin/devices/${pk}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ approve, note: approve ? 'Approved via portal' : 'Rejected' })
+      });
+      if (res.ok) {
+        alert('Device updated.');
+        loadAdminDevices();
+      }
+    }
 
     onScholarChange();
   </script>
