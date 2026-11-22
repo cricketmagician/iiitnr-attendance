@@ -26,9 +26,9 @@ class IIITNRAttendanceApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const primaryNavy = Color(0xFF0B2545);
-    const secondaryBlue = Color(0xFF134074);
-    const accentTeal = Color(0xFF00A896);
+    const primaryNavy = Color(0xFF0F172A);
+    const secondaryBlue = Color(0xFF2563EB);
+    const accentTeal = Color(0xFF10B981);
 
     return MaterialApp(
       title: 'IIITNR Scholar Attendance',
@@ -36,28 +36,34 @@ class IIITNRAttendanceApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: primaryNavy,
+          seedColor: secondaryBlue,
           primary: primaryNavy,
           secondary: secondaryBlue,
           tertiary: accentTeal,
-          surface: const Color(0xFFF8F9FA),
+          surface: const Color(0xFFF8FAFC),
         ),
+        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
         appBarTheme: const AppBarTheme(
           backgroundColor: primaryNavy,
           foregroundColor: Colors.white,
           elevation: 0,
-          centerTitle: true,
+          centerTitle: false,
         ),
         cardTheme: CardTheme(
-          elevation: 1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          elevation: 0,
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFFE2E8F0)),
+          ),
           margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            backgroundColor: primaryNavy,
+            backgroundColor: secondaryBlue,
             foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           ),
         ),
       ),

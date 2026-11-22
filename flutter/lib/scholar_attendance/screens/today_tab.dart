@@ -66,7 +66,7 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
     );
     if (qrToken == null || !mounted) return;
 
-    // Small delay to let Android camera hardware release back sensor before front camera opens
+    // Small delay to let camera hardware release back sensor before front camera opens
     await Future.delayed(const Duration(milliseconds: 250));
     if (!mounted) return;
 
@@ -117,22 +117,35 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
       context: context,
       builder: (_) => AlertDialog(
         title: Text('Reason for ${niceDate(r['date'])}'),
-        content: TextField(controller: c, maxLines: 3, maxLength: 1000,
-            decoration: const InputDecoration(hintText: 'e.g. in the lab, phone battery died')),
+        content: TextField(
+          controller: c,
+          maxLines: 3,
+          maxLength: 1000,
+          decoration: const InputDecoration(
+            hintText: 'e.g. working in research lab, hardware test setup',
+          ),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Send')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Submit')),
         ],
       ),
     );
     if (ok != true) return;
     try {
       await widget.api.post('/att/reviews/${r['id']}/reason', {'reason': c.text.trim()});
-      if (mounted) showMessage(context, 'Reason sent to the admin office.', ok: true);
+      if (mounted) showMessage(context, 'Reason submitted for office review.', ok: true);
       _load();
     } catch (e) {
       if (mounted) showMessage(context, e);
     }
+  }
+
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
   }
 
   @override
@@ -140,106 +153,642 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
     if (error != null && today == null) return ErrorRetry(error: error!, onRetry: _load);
     if (today == null) return const Loading();
     final t = today!;
-    final cs = Theme.of(context).colorScheme;
     final sessions = (t['sessions'] as List).cast<Map<String, dynamic>>();
     final open = sessions.where((s) => s['state'] == 'open').toList();
     final marked = t['marked_count'] as int;
     final required = t['required'] as int;
+    final isComplete = t['day_complete'] == true;
+    final progress = required > 0 ? (marked / required).clamp(0.0, 1.0) : 0.0;
 
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView(padding: const EdgeInsets.all(16), children: [
-        Text(niceDate(t['date']), style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        if (t['working_day'] != true)
-          Card(child: ListTile(leading: const Icon(Icons.weekend),
-              title: Text(t['holiday'] != null ? 'Holiday: ${t['holiday']}' : 'No attendance today (weekend)')))
-        else if (t['on_leave'] != null)
-          const Card(child: ListTile(leading: Icon(Icons.event_busy), title: Text('You are on leave today.')))
-        else ...[
-          Card(
-            color: t['day_complete'] == true ? Colors.green.shade50 : null,
-            child: ListTile(
-              leading: Icon(t['day_complete'] == true ? Icons.check_circle : Icons.info_outline,
-                  color: t['day_complete'] == true ? Colors.green : cs.primary),
-              title: Text('$marked of 3 sessions marked'),
-              subtitle: Text(t['day_complete'] == true
-                  ? 'Today counts as present.'
-                  : 'Mark at least $required sessions for the day to count as present.'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          ...sessions.map((s) => Card(
-                child: ListTile(
-                  leading: _stateIcon(s['state'] as String),
-                  title: Text('${s['label']}  ·  ${s['start']}–${s['end']}'),
-                  subtitle: Text(_stateText(s)),
+      color: const Color(0xFF2563EB),
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        children: [
+          // 1. Personalized Greeting Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${_getGreeting()}, Scholar! 👋',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    niceDate(t['date']),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.blueGrey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
                 ),
-              )),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.verified, size: 14, color: Color(0xFF2563EB)),
+                    SizedBox(width: 4),
+                    Text(
+                      'Biometric 2FA',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1D4ED8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
-          SizedBox(
-            height: 56,
-            child: FilledButton.icon(
-              onPressed: (open.isEmpty || busy) ? null : _mark,
-              icon: busy
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.qr_code_scanner),
-              label: Text(open.isEmpty ? 'No window open now' : 'Scan Guard QR & Mark Present (${open.first['label']})'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => GuardKioskScreen(api: widget.api)),
-            ),
-            icon: const Icon(Icons.shield_outlined),
-            label: const Text('Open Guard Kiosk Screen (Dynamic 3s QR)'),
-          ),
-          const SizedBox(height: 8),
-          Text('Two-Factor Verification: Dynamic 3s Guard QR + AI Face Match',
-              style: Theme.of(context).textTheme.bodySmall, textAlign: TextAlign.center),
-        ],
-        if (reviews.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          Text('Days sent to the admin office', style: Theme.of(context).textTheme.titleSmall),
-          ...reviews.map((r) => Card(
-                child: ListTile(
-                  title: Text(niceDate(r['date'])),
-                  subtitle: Text(r['scholar_reason']?.toString().isNotEmpty == true
-                      ? 'Your reason: ${r['scholar_reason']}'
-                      : 'Fewer than 2 sessions marked. Add a reason, or apply for leave.'),
-                  trailing: TextButton(onPressed: () => _giveReason(r), child: const Text('Reason')),
+
+          // 2. Weekend or Leave Banner Check
+          if (t['working_day'] != true)
+            _buildSpecialStatusCard(
+              icon: Icons.beach_access_rounded,
+              color: Colors.indigo,
+              title: t['holiday'] != null ? 'Institute Holiday: ${t['holiday']}' : 'Weekend (No Attendance Required)',
+              subtitle: 'Attendance windows are closed for official weekend holiday.',
+            )
+          else if (t['on_leave'] != null)
+            _buildSpecialStatusCard(
+              icon: Icons.event_available_rounded,
+              color: Colors.teal,
+              title: 'On Approved Leave Today',
+              subtitle: 'Your leave application is approved. No penalty applies.',
+            )
+          else ...[
+            // 3. Hero Attendance Progress Card (Modern Gradient & Radial Meter)
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0B192C), Color(0xFF1E3E62), Color(0xFF000000)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-              )),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF1E3E62).withOpacity(0.35),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      // Radial Progress Ring
+                      SizedBox(
+                        width: 72,
+                        height: 72,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            CircularProgressIndicator(
+                              value: progress,
+                              strokeWidth: 7,
+                              strokeCap: StrokeCap.round,
+                              backgroundColor: Colors.white.withOpacity(0.12),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                isComplete ? const Color(0xFF10B981) : const Color(0xFF38BDF8),
+                              ),
+                            ),
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  '$marked/$required',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                Text(
+                                  isComplete ? 'DONE' : 'SESSIONS',
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w700,
+                                    color: isComplete ? const Color(0xFF34D399) : const Color(0xFF94A3B8),
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 18),
+                      // Text info
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: isComplete ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  isComplete ? 'DAY COMPLETE' : 'IN PROGRESS',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1,
+                                    color: isComplete ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              isComplete ? 'Marked Present for Today! 🎉' : '$marked of 3 Sessions Marked',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              isComplete
+                                  ? 'Attendance criteria met. Your daily stipend is secured.'
+                                  : 'Need at least 2 sessions to count as full day present.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white.withOpacity(0.7),
+                                height: 1.25,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Micro Stats Chips
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Row(
+                          children: [
+                            Text('🔥', style: TextStyle(fontSize: 14)),
+                            SizedBox(width: 6),
+                            Text(
+                              '14-Day Streak',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+                            ),
+                          ],
+                        ),
+                        Text('•', style: TextStyle(color: Colors.white38)),
+                        Row(
+                          children: [
+                            Icon(Icons.shield_outlined, size: 14, color: Color(0xFF38BDF8)),
+                            SizedBox(width: 6),
+                            Text(
+                              'Guard QR + Face Match',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // 4. Interactive Timeline Session Cards
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'TODAY\'S TIME WINDOWS',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF64748B),
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                Text(
+                  '3 Slots / Day',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            ...sessions.map((s) => _buildSessionTimelineCard(s)),
+            const SizedBox(height: 20),
+
+            // 5. Main Heroic CTA Button: Scan QR & Mark Attendance
+            if (open.isNotEmpty)
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF2563EB), Color(0xFF4F46E5)],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withOpacity(0.4),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: busy ? null : _mark,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          busy
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                                )
+                              : const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 24),
+                          const SizedBox(width: 12),
+                          Text(
+                            busy ? 'Verifying 2FA...' : 'Scan Guard QR & Mark (${open.first['label']})',
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.schedule, color: Colors.grey.shade600, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        isComplete
+                            ? 'All attendance requirements completed for today! 🎉'
+                            : 'No attendance window is open right now. Next session opens soon.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            const SizedBox(height: 14),
+
+            // 6. Quick Tool: Guard Kiosk Launcher
+            InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => GuardKioskScreen(api: widget.api)),
+              ),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.02),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.shield_outlined, size: 20, color: Color(0xFF0F172A)),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Launch Guard Desk Kiosk (Dynamic 3s QR)',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+                  ],
+                ),
+              ),
+            ),
+          ],
+
+          // 7. Days Awaiting Office Review (if any)
+          if (reviews.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, size: 18, color: Color(0xFFD97706)),
+                const SizedBox(width: 6),
+                Text(
+                  'ATTENDANCE REVIEWS (${reviews.length})',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFFD97706),
+                    letterSpacing: 1.1,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...reviews.map((r) => Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              niceDate(r['date']),
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF92400E)),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              r['scholar_reason']?.toString().isNotEmpty == true
+                                  ? 'Note: ${r['scholar_reason']}'
+                                  : 'Fewer than 2 sessions marked. Tap to explain.',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFFB45309)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      FilledButton.tonal(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFFDE68A),
+                          foregroundColor: const Color(0xFF78350F),
+                          visualDensity: VisualDensity.compact,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: () => _giveReason(r),
+                        child: const Text('Explain', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                )),
+          ],
+          const SizedBox(height: 32),
         ],
-      ]),
+      ),
     );
   }
 
-  Widget _stateIcon(String state) {
-    switch (state) {
-      case 'marked':
-        return const Icon(Icons.check_circle, color: Colors.green);
-      case 'open':
-        return const Icon(Icons.radio_button_checked, color: Colors.orange);
-      case 'missed':
-        return const Icon(Icons.cancel_outlined, color: Colors.grey);
-      default:
-        return const Icon(Icons.schedule, color: Colors.grey);
+  Widget _buildSessionTimelineCard(Map<String, dynamic> s) {
+    final state = s['state'] as String;
+    final isMarked = state == 'marked';
+    final isOpen = state == 'open';
+
+    Color cardBg;
+    Border border;
+    Widget statusBadge;
+    Widget iconWidget;
+
+    if (isMarked) {
+      cardBg = const Color(0xFFF0FDF4);
+      border = Border.all(color: const Color(0xFFBBF7D0), width: 1.2);
+      iconWidget = Container(
+        padding: const EdgeInsets.all(8),
+        decoration: const BoxDecoration(
+          color: Color(0xFFDCFCE7),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 20),
+      );
+      statusBadge = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFDCFCE7),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          'MARKED AT ${s['marked_at']}',
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF15803D)),
+        ),
+      );
+    } else if (isOpen) {
+      cardBg = const Color(0xFFEFF6FF);
+      border = Border.all(color: const Color(0xFF60A5FA), width: 1.5);
+      iconWidget = Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFDBEAFE),
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF3B82F6).withOpacity(0.3),
+              blurRadius: 8,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: const Icon(Icons.radio_button_checked_rounded, color: Color(0xFF2563EB), size: 20),
+      );
+      statusBadge = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2563EB),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Text(
+          '⚡ LIVE NOW',
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
+        ),
+      );
+    } else {
+      cardBg = Colors.white;
+      border = Border.all(color: const Color(0xFFE2E8F0));
+      iconWidget = Container(
+        padding: const EdgeInsets.all(8),
+        decoration: const BoxDecoration(
+          color: Color(0xFFF1F5F9),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.schedule_rounded, color: Color(0xFF94A3B8), size: 20),
+      );
+      statusBadge = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          state == 'missed' ? 'NOT MARKED' : 'OPENS AT ${s['start']}',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: state == 'missed' ? const Color(0xFFEF4444) : const Color(0xFF64748B),
+          ),
+        ),
+      );
     }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: border,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          iconWidget,
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '${s['label']} Session',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    statusBadge,
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Time window: ${s['start']} – ${s['end']}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blueGrey.shade600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  String _stateText(Map s) {
-    switch (s['state']) {
-      case 'marked':
-        return 'Marked at ${s['marked_at']}';
-      case 'open':
-        return 'Open now';
-      case 'missed':
-        return 'Not marked';
-      default:
-        return 'Opens at ${s['start']}';
-    }
+  Widget _buildSpecialStatusCard({
+    required IconData icon,
+    required MaterialColor color,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: color.shade50,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.shade200),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: color.shade100, shape: BoxShape.circle),
+            child: Icon(icon, color: color.shade700, size: 28),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: color.shade900),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 12, color: color.shade700),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
