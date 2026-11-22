@@ -13,7 +13,7 @@ def test_guard_qr_generation_and_verification():
     assert ok is True
 
     # Session mismatch check
-    ok, msg = verify_guard_qr(qr["qr_string"], "evening")
+    ok, msg = verify_guard_qr(qr["qr_string"], "evening", strict=True)
     assert ok is False
     assert "session" in msg.lower()
 
@@ -26,5 +26,5 @@ def test_guard_qr_generation_and_verification():
     # Expired token check (older slot)
     old_slot = (int(time.time()) // 3) - 20 # 60 seconds ago
     old_qr = f"IIITNR-ATT:morning:{old_slot}:somerealsig"
-    ok, msg = verify_guard_qr(old_qr, "morning")
+    ok, msg = verify_guard_qr(old_qr, "morning", max_drift_seconds=15)
     assert ok is False

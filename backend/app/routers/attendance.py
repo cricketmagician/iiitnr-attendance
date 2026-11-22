@@ -204,12 +204,10 @@ def guard_qr(db: Session = Depends(get_db), clk: Clock = Depends(get_clock)):
     """Provides current dynamic 3-second rotating QR token for Guard / Kiosk screen."""
     now = clk.now()
     w = open_window(db, now)
-    if get_settings().dev_mode:
-        marked_sessions = {m.session for m in db.scalars(
-            select(Mark).where(Mark.person_id == p.id, Mark.date == today)).all()}
-        unmarked = [win for win in windows(db) if win.session not in marked_sessions]
-        if unmarked:
-            w = unmarked[0]
+    if get_settings().dev_mode and not w:
+        wins = windows(db)
+        if wins:
+            w = wins[0]
     session_name = w.session if w else "morning"
     data = generate_guard_qr(session_name)
     data["session_label"] = w.label if w else "Morning"
