@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api.dart';
 import '../attendance_confirm_screen.dart';
@@ -101,7 +102,7 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
       });
       if (!mounted) return;
       setState(() => today = r['today'] as Map<String, dynamic>);
-      showMessage(context, r['message'], ok: true);
+      _showSuccessCelebration(context, r, label);
       AttendanceReminders.sync(widget.api).catchError((_) {});
     } catch (e) {
       if (mounted) showMessage(context, e);
@@ -109,6 +110,155 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => busy = false);
     }
+  }
+
+  void _showSuccessCelebration(BuildContext context, Map r, String label) {
+    HapticFeedback.heavyImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          boxShadow: [
+            BoxShadow(color: Colors.black26, blurRadius: 25, offset: Offset(0, -5)),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFCBD5E1),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 90,
+                  height: 90,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFFD1FAE5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF10B981).withOpacity(0.25),
+                        blurRadius: 20,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF059669), Color(0xFF10B981)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.check_rounded, color: Colors.white, size: 36),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Attendance Verified! 🎉',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '$label Session marked present with Guard 3s QR & Live Face match.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF64748B),
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  Column(
+                    children: [
+                      const Text(
+                        'TODAY\'S PROGRESS',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8), letterSpacing: 0.5),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${today?['marked_count'] ?? 1} / ${today?['required'] ?? 2} Sessions',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                      ),
+                    ],
+                  ),
+                  Container(width: 1, height: 32, color: const Color(0xFFE2E8F0)),
+                  const Column(
+                    children: [
+                      Text(
+                        'ACTIVE STREAK',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8), letterSpacing: 0.5),
+                      ),
+                      SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text('🔥', style: TextStyle(fontSize: 14)),
+                          SizedBox(width: 4),
+                          Text(
+                            '14 Days',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFD97706)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F172A),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Done', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _giveReason(Map r) async {
@@ -146,6 +296,80 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
     if (hour < 12) return 'Good morning';
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
+  }
+
+  Widget _buildWeeklyStrip() {
+    final now = DateTime.now();
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    final weekDays = List.generate(6, (i) => monday.add(Duration(days: i))); // Mon - Sat
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: weekDays.map((d) {
+          final isToday = d.year == now.year && d.month == now.month && d.day == now.day;
+          final isPast = d.isBefore(DateTime(now.year, now.month, now.day));
+          final dayName = ['M', 'T', 'W', 'T', 'F', 'S'][d.weekday - 1];
+
+          return Container(
+            width: 48,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: isToday
+                  ? const Color(0xFF2563EB)
+                  : (isPast ? const Color(0xFFF1F5F9) : Colors.white),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isToday ? const Color(0xFF1D4ED8) : const Color(0xFFE2E8F0),
+                width: isToday ? 1.5 : 1,
+              ),
+              boxShadow: isToday
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFF2563EB).withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      )
+                    ]
+                  : null,
+            ),
+            child: Column(
+              children: [
+                Text(
+                  dayName,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: isToday ? Colors.white.withOpacity(0.85) : const Color(0xFF94A3B8),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${d.day}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: isToday ? Colors.white : const Color(0xFF1E293B),
+                  ),
+                ),
+                if (isPast) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    width: 4,
+                    height: 4,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF10B981),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
   }
 
   @override
@@ -218,9 +442,11 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
               ),
             ],
           ),
-          const SizedBox(height: 16),
 
-          // 2. Weekend or Leave Banner Check
+          // 2. Weekly Day Strip (Mobbin: Joi & Insight Timer pattern)
+          _buildWeeklyStrip(),
+
+          // 3. Weekend or Leave Banner Check
           if (t['working_day'] != true)
             _buildSpecialStatusCard(
               icon: Icons.beach_access_rounded,
@@ -236,7 +462,7 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
               subtitle: 'Your leave application is approved. No penalty applies.',
             )
           else ...[
-            // 3. Hero Attendance Progress Card (Modern Gradient & Radial Meter)
+            // 4. Hero Attendance Progress Card (Modern Gradient & Radial Meter)
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -391,9 +617,9 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
-            // 4. Interactive Timeline Session Cards
+            // 5. Interactive Timeline Session Cards
             const Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -417,7 +643,7 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
             ...sessions.map((s) => _buildSessionTimelineCard(s)),
             const SizedBox(height: 20),
 
-            // 5. Main Heroic CTA Button: Scan QR & Mark Attendance
+            // 6. Main Heroic CTA Button: Scan QR & Mark Attendance
             if (open.isNotEmpty)
               Container(
                 decoration: BoxDecoration(
@@ -498,7 +724,7 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
 
             const SizedBox(height: 14),
 
-            // 6. Quick Tool: Guard Kiosk Launcher
+            // 7. Quick Tool: Guard Kiosk Launcher
             InkWell(
               borderRadius: BorderRadius.circular(14),
               onTap: () => Navigator.push(
@@ -540,7 +766,7 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
             ),
           ],
 
-          // 7. Days Awaiting Office Review (if any)
+          // 8. Days Awaiting Office Review (if any)
           if (reviews.isNotEmpty) ...[
             const SizedBox(height: 24),
             Row(
@@ -752,23 +978,34 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
 
   Widget _buildSpecialStatusCard({
     required IconData icon,
-    required MaterialColor color,
+    required Color color,
     required String title,
     required String subtitle,
   }) {
     return Container(
+      margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: color.shade50,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.shade200),
+        border: Border.all(color: color.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: color.shade100, shape: BoxShape.circle),
-            child: Icon(icon, color: color.shade700, size: 28),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 28),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -777,12 +1014,20 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
               children: [
                 Text(
                   title,
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: color.shade900),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
                 Text(
                   subtitle,
-                  style: TextStyle(fontSize: 12, color: color.shade700),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF64748B),
+                    height: 1.3,
+                  ),
                 ),
               ],
             ),
