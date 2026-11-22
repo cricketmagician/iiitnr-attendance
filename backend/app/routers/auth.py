@@ -77,16 +77,9 @@ def google_login(body: GoogleLoginIn, db: Session = Depends(get_db)):
     person = db.scalar(select(Person).where(Person.email == email))
     if person is None:
         name = claims.get("name") or email.split("@")[0].replace(".", " ").title()
-        roll_no = email.split("@")[0].upper()
-        person = Person(
-            email=email,
-            name=name,
-            roll_no=roll_no,
-            programme="PhD" if "phd" in email else "MTech" if "mtech" in email else "Scholar",
-            funding="institute",
-            roles="scholar",
-            active=True,
-        )
+        # New account: the scholar fills the registration form, the office approves it.
+        person = Person(email=email, name=name, roll_no="", programme=None, funding="institute",
+                        roles="scholar", active=True, registration_status="none")
         db.add(person)
         db.commit()
         db.refresh(person)
@@ -124,7 +117,9 @@ def dev_token(body: DevLoginIn, db: Session = Depends(get_db)):
     person = db.scalar(select(Person).where(Person.email == email))
     if person is None:
         role = "scholar"
-        if "guide" in email:
+        if "guard" in email:
+            role = "guard"
+        elif "guide" in email:
             role = "supervisor"
         elif "hod" in email:
             role = "hod"
@@ -133,15 +128,9 @@ def dev_token(body: DevLoginIn, db: Session = Depends(get_db)):
         elif "office" in email or "admin" in email:
             role = "admin"
         name = email.split("@")[0].replace(".", " ").title()
-        person = Person(
-            email=email,
-            name=name,
-            roll_no=email.split("@")[0].upper(),
-            programme="PhD" if "phd" in email else "MTech" if "mtech" in email else "Scholar",
-            funding="institute",
-            roles=role,
-            active=True,
-        )
+        # Like a first Google login: staff are ready to go, a scholar must register.
+        person = Person(email=email, name=name, roll_no="", programme=None, funding="institute",
+                        roles=role, active=True, registration_status="none" if role == "scholar" else "approved")
         db.add(person)
         db.commit()
         db.refresh(person)

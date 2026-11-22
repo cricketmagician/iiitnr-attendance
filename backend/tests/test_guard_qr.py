@@ -70,3 +70,15 @@ def test_production_refuses_weak_jwt_secret():
     with pytest.raises(RuntimeError):
         check_production_settings(Settings(dev_mode=False, jwt_secret="iiitnr-attendance-secure-jwt-token-key-2026"))
     check_production_settings(Settings(dev_mode=True, jwt_secret="change-me"))  # testing mode allowed
+
+
+def test_guard_login_shows_qr_but_scholar_cannot(env, s1):
+    from app.config import get_settings
+    from app.models import Person
+    with env.Session() as db:
+        db.add(Person(email="gate@iiitnr.edu.in", name="Gate", roles="guard"))
+        db.commit()
+    assert get_settings().dev_mode is False
+    r = env.client.get("/att/guard/qr", headers=env.staff("gate@iiitnr.edu.in"))
+    assert r.status_code == 200 and r.json()["qr_string"]
+    assert env.client.get("/att/guard/qr", headers=env.staff("s1@iiitnr.edu.in")).status_code == 403

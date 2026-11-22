@@ -439,6 +439,7 @@ def dashboard(a: Actor = Depends(actor), db: Session = Depends(get_db), clk: Clo
     if p.has("dean_ri"):
         pending["leave_dean"] = count(select(LeaveApplication.id).where(LeaveApplication.status == "pending_dean"))
     if p.has("admin"):
+        pending["registrations"] = count(select(Person.id).where(Person.registration_status == "pending"))
         pending["leave_admin"] = count(select(LeaveApplication.id).where(LeaveApplication.status == "pending_admin"))
         pending["reviews"] = count(select(DayReview.id).where(DayReview.status == "pending"))
         pending["devices"] = count(select(Device.id).where(Device.status == "pending"))

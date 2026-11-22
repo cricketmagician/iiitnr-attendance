@@ -6,6 +6,7 @@ import '../api.dart';
 import '../ui_common.dart';
 import 'admin_pages.dart';
 import 'scholar_home.dart' show FloatingNavBar, showProfileSheet;
+import 'scholars_admin.dart';
 import 'staff_dashboard.dart';
 
 /// Supervisor, HoD, Dean (R&I) and Attendance Office. Starts on a role dashboard;
@@ -22,6 +23,41 @@ class StaffHome extends StatefulWidget {
 class _StaffHomeState extends State<StaffHome> {
   int _tab = 0;
   int _homeVersion = 0;
+  Map<String, int> _badges = const {};
+
+  static const _short = {
+    'home': 'Home',
+    'scholars': 'Scholars',
+    'approvals': 'Approve',
+    'dean': 'Dean',
+    'leave': 'Leave',
+    'reviews': 'Reviews',
+    'register': 'Register',
+    'more': 'Settings',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBadges();
+  }
+
+  /// Red counts on tabs: what is waiting in each.
+  Future<void> _loadBadges() async {
+    try {
+      final d = await widget.api.get('/admin/dashboard') as Map<String, dynamic>;
+      final p = (d['pending'] as Map).cast<String, int>();
+      if (!mounted) return;
+      setState(() => _badges = {
+            'scholars': p['registrations'] ?? 0,
+            'approvals': p['leave_supervisor'] ?? 0,
+            'dean': p['leave_dean'] ?? 0,
+            'leave': p['leave_admin'] ?? 0,
+            'reviews': p['reviews'] ?? 0,
+            'more': p['devices'] ?? 0,
+          });
+    } catch (_) {/* badges are a hint only */}
+  }
 
   void _profile() => showProfileSheet(context, widget.me, widget.onLogout);
 
@@ -34,6 +70,8 @@ class _StaffHomeState extends State<StaffHome> {
     // key, icon, selected icon, title, page
     final tabs = <(String, IconData, IconData, String, Widget)>[
       ('home', Icons.space_dashboard_outlined, Icons.space_dashboard_rounded, 'Home', const SizedBox()),
+      if (isAdmin)
+        ('scholars', Icons.groups_outlined, Icons.groups_rounded, 'Scholars', ScholarsPage(api: widget.api)),
       if (roles.contains('supervisor'))
         ('approvals', Icons.how_to_reg_outlined, Icons.how_to_reg_rounded, 'Leave to approve',
             LeaveQueue(api: widget.api, role: 'supervisor')),
@@ -86,11 +124,15 @@ class _StaffHomeState extends State<StaffHome> {
             : FloatingNavBar(
                 index: i,
                 // Coming back to Home reloads the numbers.
-                onTap: (v) => setState(() {
-                  if (v == 0 && i != 0) _homeVersion++;
-                  _tab = v;
-                }),
-                items: [for (final t in tabs) (t.$2, t.$3, t.$1 == 'home' ? 'Home' : t.$4.split(' ').first)],
+                onTap: (v) {
+                  setState(() {
+                    if (v == 0 && i != 0) _homeVersion++;
+                    _tab = v;
+                  });
+                  _loadBadges();
+                },
+                items: [for (final t in tabs) (t.$2, t.$3, _short[t.$1] ?? t.$4)],
+                badges: [for (final t in tabs) _badges[t.$1] ?? 0],
               ),
       ),
     );

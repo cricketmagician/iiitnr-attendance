@@ -184,6 +184,7 @@ class _Body extends StatelessWidget {
       'leave_admin': ('leave', Icons.fact_check_rounded, 'Leave to confirm', 'Approved, waiting for the office'),
       'reviews': ('reviews', Icons.rule_rounded, 'Day reviews', 'Days with only one session marked'),
       'devices': ('devices', Icons.smartphone_rounded, 'Phone changes', 'Scholars asking to switch phone'),
+      'registrations': ('scholars', Icons.person_add_alt_1_rounded, 'New registrations', 'Scholars waiting to be approved'),
     };
     final items = [for (final e in _pending.entries) if (meta.containsKey(e.key)) (meta[e.key]!, e.value)];
     if (items.isEmpty) return const [];

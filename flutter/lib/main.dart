@@ -55,7 +55,7 @@ class _AuthGateState extends State<AuthGate> {
 
   String? _token;
   String? _email;
-  String _serverUrl = 'https://iiitnr-attendance.onrender.com';
+  String _serverUrl = _defaultServer;
   bool _loading = true;
 
   @override
@@ -74,7 +74,7 @@ class _AuthGateState extends State<AuthGate> {
         !savedUrl.contains('localhost')) {
       _serverUrl = savedUrl;
     } else {
-      _serverUrl = 'https://iiitnr-attendance.onrender.com';
+      _serverUrl = _defaultServer;
     }
     setState(() {
       _token = token;
@@ -165,6 +165,9 @@ class LoginScreen extends StatefulWidget {
 /// `flutter build apk --release --dart-define=DEV_LOGIN=true`. Never in a production release.
 const _showDevLogin = !kReleaseMode || bool.fromEnvironment('DEV_LOGIN');
 
+/// Server the app talks to. Override with --dart-define=SERVER_URL=... for a local test build.
+const _defaultServer = String.fromEnvironment('SERVER_URL', defaultValue: 'https://iiitnr-attendance.onrender.com');
+
 class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController(text: 'scholar1@iiitnr.edu.in');
   late final _serverCtrl = TextEditingController(text: widget.defaultServerUrl);
@@ -179,12 +182,14 @@ class _LoginScreenState extends State<LoginScreen> {
   );
 
   final List<Map<String, String>> _sampleAccounts = [
+    {'label': 'New scholar (registers)', 'email': 'new.scholar@iiitnr.edu.in'},
     {'label': 'PhD Scholar 1', 'email': 'scholar1@iiitnr.edu.in'},
     {'label': 'MTech Scholar 1', 'email': 'mtech1@iiitnr.edu.in'},
     {'label': 'Research Guide', 'email': 'guide1@iiitnr.edu.in'},
     {'label': 'Head of Dept (HoD)', 'email': 'hod.sm@iiitnr.edu.in'},
     {'label': 'Dean (R&I)', 'email': 'dean.ri@iiitnr.edu.in'},
     {'label': 'Attendance Office', 'email': 'attendance.office@iiitnr.edu.in'},
+    {'label': 'Guard (gate QR)', 'email': 'guard.main@iiitnr.edu.in'},
   ];
 
   Future<void> _signInWithGoogle() async {

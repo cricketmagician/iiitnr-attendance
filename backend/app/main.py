@@ -18,8 +18,8 @@ from pydantic import BaseModel
 
 from .clock import clock
 from .config import check_production_settings, get_settings
-from .db import Base, engine
-from .routers import admin, attendance, auth, leave
+from .db import Base, add_missing_columns, engine
+from .routers import admin, attendance, auth, leave, registration
 from .security import api_error
 
 log = logging.getLogger("att")
@@ -51,6 +51,9 @@ async def lifespan(app: FastAPI):
         log.warning("ATT_DEV_MODE is ON: password-less /auth/dev-token login is enabled. Never expose this server.")
     if os.environ.get("ATT_CREATE_TABLES", "true").lower() == "true":
         Base.metadata.create_all(engine)
+        added = add_missing_columns(engine)
+        if added:
+            log.warning("Added database columns: %s", ", ".join(added))
         try:
             from .db import SessionLocal
             from .models import Person
@@ -72,15 +75,16 @@ async def lifespan(app: FastAPI):
 # so the supervisor, HoD and Dean dashboards all have someone to show.
 DEMO_PEOPLE = [
     dict(email="scholar1@iiitnr.edu.in", name="Aarav Sharma", roll_no="PHD202401", programme="PhD", roles="scholar",
-         department="S&M", supervisor_email="guide1@iiitnr.edu.in"),
+         department="S&M", supervisor_email="guide1@iiitnr.edu.in", joining_date=dt.date(2024, 8, 1)),
     dict(email="mtech1@iiitnr.edu.in", name="Priya Patel", roll_no="MT202401", programme="MTech", roles="scholar",
-         department="S&M", supervisor_email="guide1@iiitnr.edu.in"),
+         department="S&M", joining_date=dt.date(2025, 7, 21)),
     dict(email="guide1@iiitnr.edu.in", name="Dr. Rajesh Guide", roll_no="FAC001", programme=None, roles="supervisor",
          department="S&M"),
     dict(email="hod.sm@iiitnr.edu.in", name="HoD, S&M", roll_no="HOD001", programme=None, roles="hod", department="S&M"),
     dict(email="dean.ri@iiitnr.edu.in", name="Dean (R&I)", roll_no="DEAN001", programme=None, roles="dean_ri"),
     dict(email="attendance.office@iiitnr.edu.in", name="Attendance Office", roll_no="ADMIN001", programme=None,
          roles="admin"),
+    dict(email="guard.main@iiitnr.edu.in", name="Main Gate Guard", roll_no="GUARD001", programme=None, roles="guard"),
 ]
 
 
@@ -96,6 +100,7 @@ def _seed_demo_people(db) -> None:
         p.programme = d["programme"]
         p.department = p.department or d.get("department", "")
         p.supervisor_email = p.supervisor_email or d.get("supervisor_email", "")
+        p.joining_date = p.joining_date or d.get("joining_date")
     db.commit()
 
 
@@ -105,6 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(leave.router)
     app.include_router(admin.router)
+    app.include_router(registration.router)
 
     @app.get("/health")
     def health():

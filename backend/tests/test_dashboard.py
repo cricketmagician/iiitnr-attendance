@@ -22,7 +22,7 @@ def test_dashboard_per_role(env, s1, s2):
     assert dean["role"] == "dean_ri" and dean["scholars"] == 2 and "leave_dean" in dean["pending"]
 
     office = env.client.get("/admin/dashboard", headers=env.staff("office@iiitnr.edu.in")).json()
-    assert set(office["pending"]) == {"leave_admin", "reviews", "devices"}
+    assert set(office["pending"]) == {"leave_admin", "reviews", "devices", "registrations"}
     assert len(office["today"]["sessions"]) == 3
 
 

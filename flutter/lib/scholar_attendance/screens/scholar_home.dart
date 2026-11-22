@@ -48,46 +48,94 @@ class _ScholarHomeState extends State<ScholarHome> {
   }
 }
 
-/// Dark, rounded bottom bar that floats above the content.
+/// Floating bottom bar: icon with its name under it, the current tab in a dark pill.
+/// Works for 3 to 6 tabs.
 class FloatingNavBar extends StatelessWidget {
   final int index;
   final ValueChanged<int> onTap;
   final List<(IconData, IconData, String)> items;
-  const FloatingNavBar({super.key, required this.index, required this.onTap, required this.items});
+
+  /// Optional red counts on tabs (same order as items); 0 hides the badge.
+  final List<int>? badges;
+  const FloatingNavBar({super.key, required this.index, required this.onTap, required this.items, this.badges});
 
   @override
   Widget build(BuildContext context) {
+    final compact = items.length > 4;
     return SafeArea(
-      minimum: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      minimum: const EdgeInsets.fromLTRB(16, 0, 16, 10),
       child: Container(
-        height: 68,
-        padding: const EdgeInsets.all(8),
+        height: 74,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         decoration: BoxDecoration(
-          color: AppColors.ink,
-          borderRadius: BorderRadius.circular(26),
-          boxShadow: [BoxShadow(color: AppColors.ink.withOpacity(0.25), blurRadius: 24, offset: const Offset(0, 10))],
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: AppColors.line),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 28, offset: const Offset(0, 10)),
+          ],
         ),
         child: Row(children: [
           for (var i = 0; i < items.length; i++)
             Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => onTap(i),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOut,
-                  decoration: BoxDecoration(
-                    color: i == index ? Colors.white : null,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Icon(i == index ? items[i].$2 : items[i].$1,
-                        size: 22, color: i == index ? AppColors.ink : Colors.white.withOpacity(0.5)),
-                    if (i == index && items.length <= 3) ...[
-                      const SizedBox(width: 8),
-                      Text(items[i].$3,
-                          style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 13.5)),
-                    ],
+              child: Semantics(
+                button: true,
+                selected: i == index,
+                label: items[i].$3,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    if (i != index) HapticFeedback.selectionClick();
+                    onTap(i);
+                  },
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Stack(clipBehavior: Clip.none, children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        width: i == index ? (compact ? 46 : 58) : 40,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: i == index ? AppColors.ink : Colors.transparent,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(
+                          i == index ? items[i].$2 : items[i].$1,
+                          size: 21,
+                          color: i == index ? Colors.white : AppColors.muted,
+                        ),
+                      ),
+                      if ((badges?.elementAtOrNull(i) ?? 0) > 0)
+                        Positioned(
+                          right: -2,
+                          top: -3,
+                          child: Container(
+                            constraints: const BoxConstraints(minWidth: 17),
+                            height: 17,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: AppColors.danger,
+                              borderRadius: BorderRadius.circular(9),
+                              border: Border.all(color: Colors.white, width: 1.5),
+                            ),
+                            child: Text('${badges![i] > 99 ? '99+' : badges![i]}',
+                                style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w800)),
+                          ),
+                        ),
+                    ]),
+                    const SizedBox(height: 4),
+                    Text(
+                      items[i].$3,
+                      maxLines: 1,
+                      overflow: TextOverflow.clip,
+                      style: TextStyle(
+                        fontSize: compact ? 10.5 : 11.5,
+                        fontWeight: i == index ? FontWeight.w700 : FontWeight.w500,
+                        color: i == index ? AppColors.ink : AppColors.muted,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
                   ]),
                 ),
               ),

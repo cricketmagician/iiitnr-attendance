@@ -12,8 +12,10 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'config.dart';
 import 'device_identity.dart';
+import 'guard_kiosk_screen.dart';
 import 'reminders.dart';
 import 'screens/phone_setup_page.dart';
+import 'screens/registration_page.dart';
 import 'screens/scholar_home.dart';
 import 'screens/staff_home.dart';
 import 'ui_common.dart';
@@ -85,6 +87,13 @@ class _ScholarAttendanceEntryState extends State<ScholarAttendanceEntry> {
       );
     }
     final roles = (me!['roles'] as List).cast<String>();
+    // Guard: the account exists only to show the gate QR.
+    if (roles.contains('guard') && !roles.any((r) => const ['supervisor', 'hod', 'dean_ri', 'admin'].contains(r))) {
+      return GuardKioskScreen(api: api, guardName: me!['name']?.toString(), onLogout: widget.onLogout);
+    }
+    if (me!['registration']?['needed'] == true) {
+      return RegistrationFlow(api: api, me: me!, onRefresh: _load, onLogout: widget.onLogout);
+    }
     if (me!['is_scholar'] == true) return ScholarHome(api: api, me: me!, onLogout: widget.onLogout);
     if (roles.any((r) => const ['supervisor', 'hod', 'dean_ri', 'admin'].contains(r))) {
       return StaffHome(api: api, me: me!, onLogout: widget.onLogout);

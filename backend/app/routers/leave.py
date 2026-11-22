@@ -95,6 +95,13 @@ def _save_attachment(person_id: int, name: str, b64: str) -> str:
     return path
 
 
+def first_step(p: Person, needs_dean: bool) -> str:
+    """Leave starts with the supervisor. A scholar without one (MTech) skips that step."""
+    if p.supervisor_email:
+        return "pending_supervisor"
+    return "pending_dean" if needs_dean else "pending_admin"
+
+
 @router.post("")
 def apply(body: LeaveIn, a: Actor = Depends(require_scholar), db: Session = Depends(get_db),
           clk: Clock = Depends(get_clock)):
@@ -109,7 +116,7 @@ def apply(body: LeaveIn, a: Actor = Depends(require_scholar), db: Session = Depe
     lv = LeaveApplication(person_id=a.person.id, leave_type=body.leave_type, from_date=body.from_date,
                           to_date=body.to_date, days=days, reason=body.reason.strip(), address=body.address.strip(),
                           contact=body.contact.strip(), attachment_path=path, needs_dean=needs_dean,
-                          status="pending_supervisor", created_at=now)
+                          status=first_step(a.person, needs_dean), created_at=now)
     db.add(lv)
     db.flush()
     audit(db, now, a.person.email, "leave.apply", str(lv.id), f"{body.leave_type} {body.from_date}..{body.to_date}")

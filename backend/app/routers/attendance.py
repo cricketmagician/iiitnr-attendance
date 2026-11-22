@@ -37,6 +37,10 @@ def me(a: Actor = Depends(actor)):
         "joining_date": p.joining_date.isoformat() if p.joining_date else None,
         "roles": p.role_list,
         "is_scholar": p.is_scholar,
+        "supervisor_email": p.supervisor_email, "phone": p.phone or "",
+        # none | pending | approved | rejected. A scholar who is not approved sees the registration screens.
+        "registration": {"status": p.registration_status or "approved", "note": p.registration_note or "",
+                         "needed": p.needs_registration},
         "device": {"device_id": a.device.device_id, "status": a.device.status} if a.device else None,
     }
 

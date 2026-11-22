@@ -16,6 +16,7 @@ SESSIONS = ("M", "A", "E")  # morning, afternoon, evening
 
 
 ROLE_ALIASES = {"guide": "supervisor", "dean": "dean_ri", "office": "admin"}
+STAFF_ROLES = ("supervisor", "hod", "dean_ri", "admin")
 
 
 class Person(Base):
@@ -32,11 +33,24 @@ class Person(Base):
     joining_date: Mapped[Optional[dt.date]] = mapped_column(Date, nullable=True)
     department: Mapped[str] = mapped_column(String(80), default="")
     supervisor_email: Mapped[str] = mapped_column(String(190), default="")
-    # comma-separated: scholar, supervisor, hod, dean_ri, admin
+    # comma-separated: scholar, supervisor, hod, dean_ri, admin, guard (shows the gate QR)
     roles: Mapped[str] = mapped_column(String(120), default="scholar")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     face_embedding: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     face_enrolled_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Contact details, filled in by the scholar at registration
+    phone: Mapped[str] = mapped_column(String(20), default="", server_default="")
+    personal_email: Mapped[str] = mapped_column(String(190), default="", server_default="")
+    address: Mapped[str] = mapped_column(String(300), default="", server_default="")
+
+    # Registration: none -> pending -> approved | rejected (rejected may resubmit).
+    # People imported by the office are approved from the start.
+    registration_status: Mapped[str] = mapped_column(String(12), default="approved", server_default="approved")
+    registration_note: Mapped[str] = mapped_column(Text, default="", server_default="")
+    registered_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime, nullable=True)
+    reviewed_by: Mapped[str] = mapped_column(String(190), default="", server_default="")
+    reviewed_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime, nullable=True)
 
     @property
     def role_list(self) -> list[str]:
@@ -52,8 +66,19 @@ class Person(Base):
         return role in self.role_list
 
     @property
+    def is_staff(self) -> bool:
+        return any(self.has(r) for r in STAFF_ROLES)
+
+    @property
     def is_scholar(self) -> bool:
-        return self.has("scholar") and self.programme in ("PhD", "MTech")
+        """A registered, approved PhD or MTech scholar: may mark attendance and apply for leave."""
+        return (self.has("scholar") and self.programme in ("PhD", "MTech")
+                and (self.registration_status or "approved") == "approved")
+
+    @property
+    def needs_registration(self) -> bool:
+        """A scholar account that has not been approved yet (and is not also staff)."""
+        return self.has("scholar") and not self.is_staff and (self.registration_status or "approved") != "approved"
 
 
 class Device(Base):
