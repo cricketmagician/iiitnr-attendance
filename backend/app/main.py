@@ -124,17 +124,6 @@ def create_app() -> FastAPI:
         )
         return RedirectResponse(url=fallback_url, status_code=302)
 
-    if get_settings().dev_mode:
-        @app.post("/auth/dev-token", tags=["dev"])
-        def dev_token(body: DevLogin):
-            """DEV ONLY: issues a token like the IIITNR login service would."""
-            s = get_settings()
-            if s.jwt_algorithm != "HS256":
-                raise api_error(400, "DEV", "dev-token works only with HS256.")
-            exp = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=7)
-            return {"token": jwt.encode({s.jwt_email_claim: body.email.lower(), "exp": exp}, s.jwt_secret,
-                                        algorithm="HS256")}
-
     return app
 
 
