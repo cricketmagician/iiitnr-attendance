@@ -95,8 +95,10 @@ class _AuthGateState extends State<AuthGate> {
     final token = await _storage.read(key: _kToken);
     final email = await _storage.read(key: _kEmail);
     final savedUrl = await _storage.read(key: _kServerUrl);
-    if (savedUrl != null && savedUrl.isNotEmpty) {
+    if (savedUrl != null && savedUrl.isNotEmpty && !savedUrl.contains('127.0.0.1') && !savedUrl.contains('localhost')) {
       _serverUrl = savedUrl;
+    } else {
+      _serverUrl = 'https://iiitnr-attendance.onrender.com';
     }
     setState(() {
       _token = token;
