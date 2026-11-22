@@ -84,6 +84,26 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
            data-logo_alignment="left">
       </div>
 
+      <!-- Instant 1-Click Login Option (No Google password required) -->
+      <div id="direct-login-box" class="w-full mt-3 pt-3 border-t border-slate-800">
+        <div class="flex items-center space-x-2">
+          <input id="direct-email-input" type="email" value="scholar1@iiitnr.edu.in"
+                 placeholder="name@iiitnr.edu.in"
+                 class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white flex-1 focus:outline-none focus:border-blue-500">
+          <button id="btn-direct-login" onclick="doDirectLogin()"
+                  class="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow transition flex items-center space-x-1.5 whitespace-nowrap">
+            <span>⚡ Instant Login</span>
+          </button>
+        </div>
+        <div class="flex items-center space-x-1 mt-2 overflow-x-auto py-1">
+          <span class="text-[10px] text-slate-400">Quick:</span>
+          <button onclick="setDirectEmail('scholar1@iiitnr.edu.in')" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-blue-300 hover:bg-slate-700">PhD Scholar</button>
+          <button onclick="setDirectEmail('mtech1@iiitnr.edu.in')" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-blue-300 hover:bg-slate-700">MTech</button>
+          <button onclick="setDirectEmail('guide1@iiitnr.edu.in')" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-purple-300 hover:bg-slate-700">Guide</button>
+          <button onclick="setDirectEmail('hod.sm@iiitnr.edu.in')" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-amber-300 hover:bg-slate-700">HoD</button>
+        </div>
+      </div>
+
       <!-- Logged In Profile Banner (Hidden initially) -->
       <div id="google-user-banner" class="hidden w-full bg-slate-950/80 border border-emerald-600/40 rounded-xl p-3 flex items-center space-x-3 mt-2">
         <div class="w-9 h-9 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-sm font-bold text-emerald-400" id="google-user-avatar">
@@ -94,6 +114,7 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
           <p class="text-[11px] text-slate-400 truncate" id="google-user-email">email@iiitnr.edu.in</p>
         </div>
         <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">Verified</span>
+        <button onclick="logoutPortal()" class="text-[10px] text-slate-400 hover:text-rose-400 underline ml-1">Logout</button>
       </div>
     </div>
 
@@ -476,6 +497,8 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
             select.appendChild(newOpt);
             select.value = data.person.email;
           }
+          const dlb = document.getElementById('direct-login-box');
+          if (dlb) dlb.classList.add('hidden');
           onScholarChange();
           alert('✅ Welcome, ' + (data.person.name || data.person.email) + '! You are authenticated with your official IIITNR Google account.');
         } else {
@@ -484,6 +507,96 @@ MOBILE_WEB_HTML = """<!DOCTYPE html>
       })
       .catch(err => alert('Network error: ' + err));
     }
+
+    function setDirectEmail(em) {
+      document.getElementById('direct-email-input').value = em;
+      doDirectLogin();
+    }
+
+    async function doDirectLogin() {
+      const email = document.getElementById('direct-email-input').value.trim().toLowerCase();
+      if (!email.endsWith('@iiitnr.edu.in')) {
+        alert('Please enter an authorized @iiitnr.edu.in email');
+        return;
+      }
+      const btn = document.getElementById('btn-direct-login');
+      btn.disabled = true;
+      btn.innerHTML = '<span>Logging in...</span>';
+      try {
+        const res = await fetch('/auth/dev-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (data.ok && data.token) {
+          currentAuthToken = data.token;
+          localStorage.setItem('att_auth_token', data.token);
+          document.getElementById('google-user-banner').classList.remove('hidden');
+          const gsiBtn = document.querySelector('.g_id_signin');
+          if (gsiBtn) gsiBtn.classList.add('hidden');
+          const dlb = document.getElementById('direct-login-box');
+          if (dlb) dlb.classList.add('hidden');
+          document.getElementById('google-user-name').textContent = data.person.name || data.person.email;
+          document.getElementById('google-user-email').textContent = data.person.email + ' (' + (data.person.roles || 'scholar') + ')';
+          
+          const select = document.getElementById('scholar-select');
+          let found = false;
+          for (let opt of select.options) {
+            if (opt.value === data.person.email) {
+              select.value = data.person.email;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            const opt = document.createElement('option');
+            opt.value = data.person.email;
+            opt.textContent = data.person.email + ' (Enrolled)';
+            select.appendChild(opt);
+            select.value = data.person.email;
+          }
+          onScholarChange();
+        } else {
+          alert('Login failed: ' + (data.detail?.message || JSON.stringify(data)));
+        }
+      } catch (e) {
+        alert('Server connection error: ' + e);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>⚡ Instant Login</span>';
+      }
+    }
+
+    function logoutPortal() {
+      localStorage.removeItem('att_auth_token');
+      currentAuthToken = '';
+      document.getElementById('google-user-banner').classList.add('hidden');
+      const gsiBtn = document.querySelector('.g_id_signin');
+      if (gsiBtn) gsiBtn.classList.remove('hidden');
+      const dlb = document.getElementById('direct-login-box');
+      if (dlb) dlb.classList.remove('hidden');
+    }
+
+    // Auto-login if previously saved token exists
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedToken = localStorage.getItem('att_auth_token');
+      if (savedToken) {
+        try {
+          const payload = JSON.parse(atob(savedToken.split('.')[1]));
+          if (payload && payload.email) {
+            currentAuthToken = savedToken;
+            document.getElementById('google-user-banner').classList.remove('hidden');
+            const gsiBtn = document.querySelector('.g_id_signin');
+            if (gsiBtn) gsiBtn.classList.add('hidden');
+            const dlb = document.getElementById('direct-login-box');
+            if (dlb) dlb.classList.add('hidden');
+            document.getElementById('google-user-name').textContent = payload.name || payload.email;
+            document.getElementById('google-user-email').textContent = payload.email + ' (' + (payload.roles || 'scholar') + ')';
+          }
+        } catch (_) {}
+      }
+    });
 
     onScholarChange();
   </script>
