@@ -44,7 +44,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text('Step 1: Scan Guard QR (${widget.sessionLabel})'),
+        title: const Text('Step 1 of 2 · Scan guard QR'),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         actions: [

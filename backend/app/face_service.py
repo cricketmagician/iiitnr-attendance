@@ -73,14 +73,8 @@ def parse_and_validate_face_image(b64_string: str) -> bytes:
     return raw_bytes
 
 
-def _synthetic_embedding(raw_bytes: bytes) -> list[float]:
-    """Generates a deterministic 128-d unit vector from raw bytes when image decode fails (e.g. test payloads)."""
-    h1 = hashlib.sha512(raw_bytes).digest()
-    h2 = hashlib.sha512(raw_bytes + b"_face_features").digest()
-    combined = h1 + h2  # 128 bytes
-    vector = [((b - 128.0) / 128.0) for b in combined]
-    norm = math.sqrt(sum(x * x for x in vector)) or 1.0
-    return [x / norm for x in vector]
+class FaceServiceUnavailable(RuntimeError):
+    """The face models are not installed; verification must fail closed."""
 
 
 def calibrate_match_percentage(raw_cosine: float) -> int:
@@ -98,9 +92,9 @@ def calibrate_match_percentage(raw_cosine: float) -> int:
 
 def generate_face_embedding(raw_bytes: bytes) -> list[float]:
     """Extracts a normalized 128-dimensional face embedding vector using OpenCV YuNet + SFace ONNX models.
-    Falls back to synthetic deterministic vectors for non-image test payloads."""
+    Never falls back to a hash of the bytes: that would let anyone replay the same bytes as a "face"."""
     if not HAS_OPENCV or cv2 is None or np is None:
-        return _synthetic_embedding(raw_bytes)
+        raise FaceServiceUnavailable("Face verification is not available on the server (OpenCV missing).")
 
     # Attempt to decode as image with OpenCV
     img = None
@@ -111,13 +105,11 @@ def generate_face_embedding(raw_bytes: bytes) -> list[float]:
         img = None
 
     if img is None:
-        # Not a valid image format (e.g. dummy bytes in test suite)
-        return _synthetic_embedding(raw_bytes)
+        raise ValueError("The selfie is not a valid image. Please capture it again.")
 
-    # Real image provided - detect face and extract SFace embedding
     det, rec = _init_models()
     if det is None or rec is None:
-        return _synthetic_embedding(raw_bytes)
+        raise FaceServiceUnavailable("Face verification is not available on the server (models missing).")
 
     with _model_lock:
         h, w = img.shape[:2]
@@ -173,6 +165,11 @@ def verify_face(enrolled_embedding_json: str | None, current_image_b64: str,
     try:
         enrolled_vec = json.loads(enrolled_embedding_json)
         current_vec = generate_face_embedding(raw_bytes)
+    except ValueError as e:
+        return False, 0.0, str(e)
+    except FaceServiceUnavailable:
+        raise
+    try:
         raw_sim = cosine_similarity(enrolled_vec, current_vec)
         calibrated_pct = calibrate_match_percentage(raw_sim)
         score = calibrated_pct / 100.0

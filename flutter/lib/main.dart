@@ -1,8 +1,12 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'scholar_attendance/guard_kiosk_screen.dart';
 import 'scholar_attendance/scholar_attendance.dart';
+import 'scholar_attendance/ui_common.dart'
+    show AppColors, buildAppTheme;
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
@@ -26,47 +30,10 @@ class IIITNRAttendanceApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const primaryNavy = Color(0xFF0F172A);
-    const secondaryBlue = Color(0xFF2563EB);
-    const accentTeal = Color(0xFF10B981);
-
     return MaterialApp(
-      title: 'IIITNR Scholar Attendance',
+      title: 'IIITNR Attendance',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: secondaryBlue,
-          primary: primaryNavy,
-          secondary: secondaryBlue,
-          tertiary: accentTeal,
-          surface: const Color(0xFFF8FAFC),
-        ),
-        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: primaryNavy,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          centerTitle: false,
-        ),
-        cardTheme: CardTheme(
-          elevation: 0,
-          color: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: Color(0xFFE2E8F0)),
-          ),
-          margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: secondaryBlue,
-            foregroundColor: Colors.white,
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          ),
-        ),
-      ),
+      theme: buildAppTheme(),
       home: const AuthGate(),
     );
   }
@@ -101,7 +68,10 @@ class _AuthGateState extends State<AuthGate> {
     final token = await _storage.read(key: _kToken);
     final email = await _storage.read(key: _kEmail);
     final savedUrl = await _storage.read(key: _kServerUrl);
-    if (savedUrl != null && savedUrl.isNotEmpty && !savedUrl.contains('127.0.0.1') && !savedUrl.contains('localhost')) {
+    if (savedUrl != null &&
+        savedUrl.isNotEmpty &&
+        !savedUrl.contains('127.0.0.1') &&
+        !savedUrl.contains('localhost')) {
       _serverUrl = savedUrl;
     } else {
       _serverUrl = 'https://iiitnr-attendance.onrender.com';
@@ -150,30 +120,25 @@ class _AuthGateState extends State<AuthGate> {
       getToken: () async => _token!,
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('IIITNR Attendance'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: () => _confirmLogout(context),
-          ),
-        ],
-      ),
-      body: ScholarAttendanceEntry(config: config),
-    );
+    return ScholarAttendanceEntry(
+        config: config, onLogout: () => _confirmLogout(context));
   }
 
   Future<void> _confirmLogout(BuildContext context) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Sign Out'),
-        content: Text('Log out of account $_email?'),
+        title: const Text('Sign out?'),
+        content: Text('You will need to sign in again as $_email.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Logout')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sign out'),
+          ),
         ],
       ),
     );
@@ -196,6 +161,10 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
+/// Developer sign-in shows in debug builds, or in a test release built with
+/// `flutter build apk --release --dart-define=DEV_LOGIN=true`. Never in a production release.
+const _showDevLogin = !kReleaseMode || bool.fromEnvironment('DEV_LOGIN');
+
 class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController(text: 'scholar1@iiitnr.edu.in');
   late final _serverCtrl = TextEditingController(text: widget.defaultServerUrl);
@@ -203,7 +172,8 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _error;
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
-    serverClientId: '734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com',
+    serverClientId:
+        '734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com',
     scopes: ['email', 'profile', 'openid'],
     hostedDomain: 'iiitnr.edu.in',
   );
@@ -254,7 +224,8 @@ class _LoginScreenState extends State<LoginScreen> {
           final msg = data['detail']?['message'] ?? res.body;
           setState(() => _error = 'Google login rejected: $msg');
         } catch (_) {
-          setState(() => _error = 'Google login failed (${res.statusCode}): ${res.body}');
+          setState(() =>
+              _error = 'Google login failed (${res.statusCode}): ${res.body}');
         }
       }
     } catch (e) {
@@ -269,7 +240,8 @@ class _LoginScreenState extends State<LoginScreen> {
     final serverUrl = _serverCtrl.text.trim();
 
     if (!email.endsWith('@iiitnr.edu.in')) {
-      setState(() => _error = 'Please enter an authorized @iiitnr.edu.in email');
+      setState(
+          () => _error = 'Please enter an authorized @iiitnr.edu.in email');
       return;
     }
 
@@ -290,7 +262,8 @@ class _LoginScreenState extends State<LoginScreen> {
         final token = data['token'] as String;
         widget.onLoginSuccess(email, token, serverUrl);
       } else {
-        setState(() => _error = 'Sign in failed (${res.statusCode}): ${res.body}');
+        setState(
+            () => _error = 'Sign in failed (${res.statusCode}): ${res.body}');
       }
     } catch (e) {
       setState(() => _error = 'Server connection error: $e');
@@ -299,231 +272,376 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Institute Logo / Header Icon
-                  Container(
-                    width: 76,
-                    height: 76,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0B2545).withOpacity(0.08),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.school, size: 44, color: Color(0xFF0B2545)),
-                  ),
+  Future<void> _openKiosk() async {
+    final baseUrl = _serverCtrl.text.trim().isNotEmpty
+        ? _serverCtrl.text.trim()
+        : 'https://iiitnr-attendance.onrender.com';
+    final keyCtrl = TextEditingController();
+    final kioskKey = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Guard kiosk key'),
+        content: TextField(
+          controller: keyCtrl,
+          obscureText: true,
+          decoration:
+              const InputDecoration(labelText: 'Kiosk key (from the admin)'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, keyCtrl.text.trim()),
+              child: const Text('Open')),
+        ],
+      ),
+    );
+    if (kioskKey == null || kioskKey.isEmpty || !mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+          builder: (_) =>
+              GuardKioskScreen(baseUrl: baseUrl, kioskKey: kioskKey)),
+    );
+  }
+
+  // Developer sign-in lives in a sheet so the main screen stays clean.
+  Future<void> _openDevSheet() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final text = Theme.of(ctx).textTheme;
+          void pick(VoidCallback f) {
+            setSheet(f);
+            setState(() {});
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                  Text('Developer sign-in', style: text.headlineSmall),
+                  const SizedBox(height: 4),
+                  Text('Test accounts. Not in production builds.', style: text.bodySmall),
                   const SizedBox(height: 20),
-                  const Text(
-                    'IIIT Naya Raipur',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0B2545)),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Scholar Attendance & Leave Portal',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 15, color: Colors.black54),
-                  ),
-                  const SizedBox(height: 32),
-
-                  if (_error != null)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        border: Border.all(color: Colors.red.shade300),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(_error!, style: TextStyle(color: Colors.red.shade900, fontSize: 13)),
-                    ),
-
-                  // Official Google Workspace Sign-In Button
-                  Container(
-                    height: 52,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFDADCE0), width: 1.2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: _busy ? null : _signInWithGoogle,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.verified_user_outlined, size: 22, color: Color(0xFF4285F4)),
-                              const SizedBox(width: 12),
-                              Text(
-                                _busy ? 'Verifying with Google...' : 'Sign In with Google (@iiitnr.edu.in)',
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF1F1F1F),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Expanded(child: Divider(color: Colors.grey.shade300)),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text(
-                          'OR LOCAL / DEMO LOGIN',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade500),
-                        ),
-                      ),
-                      Expanded(child: Divider(color: Colors.grey.shade300)),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Email input
-                  TextField(
-                    controller: _emailCtrl,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: InputDecoration(
-                      labelText: 'Institute Email',
-                      prefixIcon: const Icon(Icons.email_outlined),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      hintText: 'scholar@iiitnr.edu.in',
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Server URL input
-                  TextField(
-                    controller: _serverCtrl,
-                    decoration: InputDecoration(
-                      labelText: 'Attendance Server URL',
-                      prefixIcon: const Icon(Icons.dns_outlined),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      helperText: 'Select connection mode below or type custom URL',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: [
-                      ActionChip(
-                        avatar: const Icon(Icons.cloud_done, size: 16, color: Colors.teal),
-                        label: const Text('Render Cloud', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                        onPressed: () => setState(() => _serverCtrl.text = 'https://iiitnr-attendance.onrender.com'),
-                      ),
-                      ActionChip(
-                        avatar: const Icon(Icons.usb, size: 16),
-                        label: const Text('USB (127.0.0.1)', style: TextStyle(fontSize: 12)),
-                        onPressed: () => setState(() => _serverCtrl.text = 'http://127.0.0.1:8040'),
-                      ),
-                      ActionChip(
-                        avatar: const Icon(Icons.wifi, size: 16),
-                        label: const Text('Wi-Fi (192.168.2.6)', style: TextStyle(fontSize: 12)),
-                        onPressed: () => setState(() => _serverCtrl.text = 'http://192.168.2.6:8040'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Sign In button
-                  SizedBox(
-                    height: 52,
-                    child: FilledButton.icon(
-                      onPressed: _busy ? null : _signIn,
-                      icon: _busy
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.login),
-                      label: Text(_busy ? 'Authenticating...' : 'Sign In to Portal'),
-                    ),
-                  ),
-
-                  const SizedBox(height: 32),
-                  const Divider(),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Quick Switch Demo Account:',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black54),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Quick test selector chips
+                  Text('Account', style: text.titleSmall),
+                  const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    alignment: WrapAlignment.center,
-                    children: _sampleAccounts.map((a) {
-                      final isSelected = _emailCtrl.text == a['email'];
-                      return ActionChip(
-                        avatar: Icon(
-                          isSelected ? Icons.check_circle : Icons.person_outline,
-                          size: 16,
-                          color: isSelected ? Colors.white : const Color(0xFF0B2545),
-                        ),
-                        label: Text(a['label']!, style: TextStyle(
-                          color: isSelected ? Colors.white : const Color(0xFF0B2545),
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          fontSize: 12,
-                        )),
-                        backgroundColor: isSelected ? const Color(0xFF0B2545) : Colors.grey.shade100,
-                        onPressed: () {
-                          setState(() {
+                    children: [
+                      for (final a in _sampleAccounts)
+                        ChoiceChip(
+                          label: Text(a['label']!),
+                          selected: _emailCtrl.text == a['email'],
+                          onSelected: (_) => pick(() {
                             _emailCtrl.text = a['email']!;
                             _error = null;
-                          });
-                        },
-                      );
-                    }).toList(),
+                          }),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(labelText: 'Institute email'),
+                    onChanged: (_) => pick(() {}),
                   ),
                   const SizedBox(height: 20),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      final baseUrl = _serverCtrl.text.trim().isNotEmpty
-                          ? _serverCtrl.text.trim()
-                          : 'https://iiitnr-attendance.onrender.com';
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => GuardKioskScreen(baseUrl: baseUrl),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.shield_outlined),
-                    label: const Text('Open Guard Desk Kiosk (3s QR)'),
+                  Text('Server', style: text.titleSmall),
+                  const SizedBox(height: 10),
+                  Wrap(spacing: 8, children: [
+                    for (final e in const {
+                      'Render': 'https://iiitnr-attendance.onrender.com',
+                      'USB': 'http://127.0.0.1:8040',
+                      'Wi-Fi': 'http://192.168.2.6:8040',
+                    }.entries)
+                      ChoiceChip(
+                        label: Text(e.key),
+                        selected: _serverCtrl.text == e.value,
+                        onSelected: (_) => pick(() => _serverCtrl.text = e.value),
+                      ),
+                  ]),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _serverCtrl,
+                    decoration: const InputDecoration(labelText: 'Server URL'),
+                    onChanged: (_) => pick(() {}),
                   ),
-                ],
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _signIn();
+                      },
+                      child: const Text('Sign in as test user'),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.dark,
+      child: Scaffold(
+        backgroundColor: AppColors.canvas,
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: LayoutBuilder(
+                builder: (context, c) => SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: c.maxHeight),
+                    child: IntrinsicHeight(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          // Brand row
+                          Row(children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(11)),
+                              child: const Icon(Icons.school_rounded, color: Colors.white, size: 20),
+                            ),
+                            const SizedBox(width: 10),
+                            const Text('IIIT Naya Raipur',
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                            const Spacer(),
+                            if (_showDevLogin)
+                              IconButton(
+                                tooltip: 'Developer sign-in',
+                                onPressed: _busy ? null : _openDevSheet,
+                                icon: const Icon(Icons.code_rounded, color: AppColors.muted, size: 20),
+                              ),
+                          ]),
+
+                          const Spacer(),
+                          const SizedBox(height: 24),
+                          const _Rise(delay: 0, child: _AppPreview()),
+                          const Spacer(),
+                          const SizedBox(height: 24),
+
+                          // Copy
+                          const _Rise(
+                            delay: 120,
+                            child: Text('Your attendance,\none tap away.',
+                                style: TextStyle(
+                                    fontSize: 34,
+                                    height: 1.1,
+                                    letterSpacing: -1.2,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.ink)),
+                          ),
+                          const SizedBox(height: 12),
+                          const _Rise(
+                            delay: 180,
+                            child: Text('Scan the guard QR, take a selfie, done. Your month and leave live here too.',
+                                style: TextStyle(fontSize: 15.5, height: 1.45, color: AppColors.inkSoft)),
+                          ),
+                          const SizedBox(height: 28),
+
+                          if (_error != null) ...[
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                  color: AppColors.dangerSoft, borderRadius: BorderRadius.circular(14)),
+                              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 20),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                    child: Text(_error!,
+                                        style: const TextStyle(color: AppColors.danger, fontSize: 13.5, height: 1.35))),
+                              ]),
+                            ),
+                            const SizedBox(height: 14),
+                          ],
+
+                          // Primary action
+                          _Rise(
+                            delay: 240,
+                            child: SizedBox(
+                              height: 58,
+                              child: FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.ink,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                                ),
+                                onPressed: _busy ? null : _signInWithGoogle,
+                                child: _busy
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                    : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                        Container(
+                                          width: 26,
+                                          height: 26,
+                                          alignment: Alignment.center,
+                                          decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                                          child: const Text('G',
+                                              style: TextStyle(
+                                                  fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF4285F4))),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        const Text('Continue with Google',
+                                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                                      ]),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            Icon(Icons.lock_outline_rounded, size: 14, color: AppColors.muted),
+                            SizedBox(width: 6),
+                            Text('Only @iiitnr.edu.in accounts',
+                                style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                          ]),
+                          const SizedBox(height: 20),
+                          const Divider(height: 1),
+                          const SizedBox(height: 4),
+
+                          // Guard kiosk: secondary, quiet
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.ink,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            onPressed: _busy ? null : _openKiosk,
+                            child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                              Icon(Icons.qr_code_2_rounded, size: 20),
+                              SizedBox(width: 8),
+                              Text('Guard desk? Open the QR kiosk',
+                                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+                            ]),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Fades and lifts its child in once, on first build.
+class _Rise extends StatelessWidget {
+  final int delay;
+  final Widget child;
+  const _Rise({required this.delay, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 520 + delay),
+      curve: Interval(delay / (520 + delay), 1, curve: Curves.easeOutCubic),
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(offset: Offset(0, 16 * (1 - t)), child: child),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// Hero: a line-art student (Icons8, Notion Line Art) on a soft disc, with a
+/// floating chip that hints at what the app does.
+class _AppPreview extends StatelessWidget {
+  const _AppPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 300,
+      child: Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
+        Container(
+          width: 250,
+          height: 250,
+          decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+        ),
+        Transform.translate(
+          offset: const Offset(14, 0),
+          child: Image.asset(
+            'assets/illustrations/login_student.png',
+            height: 270,
+            filterQuality: FilterQuality.high,
+          ),
+        ),
+        const Positioned(
+          left: 0,
+          top: 6,
+          child: _Chip(
+            angle: -0.04,
+            icon: Icons.check_rounded,
+            iconBg: AppColors.successSoft,
+            iconFg: AppColors.success,
+            title: 'Morning marked',
+            subtitle: '09:12 · Main gate',
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  final double angle;
+  final IconData icon;
+  final Color iconBg;
+  final Color iconFg;
+  final String title;
+  final String subtitle;
+  const _Chip({
+    required this.angle,
+    required this.icon,
+    required this.iconBg,
+    required this.iconFg,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.rotate(
+      angle: angle,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 10, 16, 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.line),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.07), blurRadius: 20, offset: const Offset(0, 8))],
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          CircleAvatar(radius: 14, backgroundColor: iconBg, child: Icon(icon, size: 16, color: iconFg)),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
+            Text(subtitle, style: const TextStyle(fontSize: 11.5, color: AppColors.muted)),
+          ]),
+        ]),
       ),
     );
   }

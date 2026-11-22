@@ -1,50 +1,98 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../api.dart';
 import '../ui_common.dart';
 import 'admin_pages.dart';
+import 'scholar_home.dart' show FloatingNavBar, showProfileSheet;
+import 'staff_dashboard.dart';
 
-/// Supervisor, Dean (R&I), HoD and central admin screens.
+/// Supervisor, HoD, Dean (R&I) and Attendance Office. Starts on a role dashboard;
+/// the other tabs depend on what the person may do.
 class StaffHome extends StatefulWidget {
   final AttendanceApi api;
   final Map<String, dynamic> me;
-  const StaffHome({super.key, required this.api, required this.me});
+  final VoidCallback? onLogout;
+  const StaffHome({super.key, required this.api, required this.me, this.onLogout});
   @override
   State<StaffHome> createState() => _StaffHomeState();
 }
 
 class _StaffHomeState extends State<StaffHome> {
   int _tab = 0;
+  int _homeVersion = 0;
+
+  void _profile() => showProfileSheet(context, widget.me, widget.onLogout);
 
   @override
   Widget build(BuildContext context) {
     final roles = (widget.me['roles'] as List).cast<String>();
     final isAdmin = roles.contains('admin');
-    final tabs = <(String, IconData, Widget)>[
-      if (roles.contains('supervisor')) ('Approve leave', Icons.how_to_reg, LeaveQueue(api: widget.api, role: 'supervisor')),
-      if (roles.contains('dean_ri')) ('Dean (R&I)', Icons.school, LeaveQueue(api: widget.api, role: 'dean')),
-      if (isAdmin) ('Confirm leave', Icons.fact_check, LeaveQueue(api: widget.api, role: 'admin')),
-      if (isAdmin) ('Day reviews', Icons.rule, DayReviewsPage(api: widget.api)),
-      if (roles.any((r) => const ['admin', 'hod', 'supervisor'].contains(r)))
-        ('Register', Icons.table_chart, RegisterPage(api: widget.api)),
-      if (isAdmin) ('More', Icons.settings, AdminMorePage(api: widget.api)),
+    final canRegister = roles.any((r) => const ['admin', 'hod', 'supervisor', 'dean_ri'].contains(r));
+
+    // key, icon, selected icon, title, page
+    final tabs = <(String, IconData, IconData, String, Widget)>[
+      ('home', Icons.space_dashboard_outlined, Icons.space_dashboard_rounded, 'Home', const SizedBox()),
+      if (roles.contains('supervisor'))
+        ('approvals', Icons.how_to_reg_outlined, Icons.how_to_reg_rounded, 'Leave to approve',
+            LeaveQueue(api: widget.api, role: 'supervisor')),
+      if (roles.contains('dean_ri'))
+        ('dean', Icons.school_outlined, Icons.school_rounded, 'Dean (R&I) approvals',
+            LeaveQueue(api: widget.api, role: 'dean')),
+      if (isAdmin)
+        ('leave', Icons.fact_check_outlined, Icons.fact_check_rounded, 'Leave to confirm',
+            LeaveQueue(api: widget.api, role: 'admin')),
+      if (isAdmin) ('reviews', Icons.rule_rounded, Icons.rule_rounded, 'Day reviews', DayReviewsPage(api: widget.api)),
+      if (canRegister)
+        ('register', Icons.table_chart_outlined, Icons.table_chart_rounded, 'Register', RegisterPage(api: widget.api)),
+      if (isAdmin) ('more', Icons.tune_rounded, Icons.tune_rounded, 'Settings', AdminMorePage(api: widget.api)),
     ];
-    if (tabs.isEmpty) {
-      return Scaffold(appBar: AppBar(title: const Text('Attendance')), body: const Center(child: Text('Nothing here.')));
-    }
     final i = _tab.clamp(0, tabs.length - 1);
-    return Scaffold(
-      appBar: AppBar(title: Text(tabs[i].$1)),
-      body: tabs[i].$3,
-      bottomNavigationBar: tabs.length < 2
-          ? null
-          : NavigationBar(
-              selectedIndex: i,
-              onDestinationSelected: (v) => setState(() => _tab = v),
-              labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
-              destinations: [for (final t in tabs) NavigationDestination(icon: Icon(t.$2), label: t.$1)],
+
+    void open(String key) {
+      final target = key == 'devices' ? 'more' : key;
+      final j = tabs.indexWhere((t) => t.$1 == target);
+      if (j >= 0) setState(() => _tab = j);
+    }
+
+    final Widget body = i == 0
+        ? StaffDashboard(
+            key: ValueKey(_homeVersion), api: widget.api, me: widget.me, onProfile: _profile, onOpen: open)
+        : Scaffold(
+            appBar: AppBar(
+              toolbarHeight: 72,
+              title: Text(tabs[i].$4, style: Theme.of(context).textTheme.headlineSmall),
+              actions: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: GestureDetector(
+                    onTap: _profile,
+                    child: InitialsAvatar(widget.me['name']?.toString() ?? '?', size: 40),
+                  ),
+                ),
+              ],
             ),
+            body: Padding(padding: const EdgeInsets.only(bottom: 96), child: tabs[i].$5),
+          );
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.dark,
+      child: Scaffold(
+        extendBody: true,
+        body: body,
+        bottomNavigationBar: tabs.length < 2
+            ? null
+            : FloatingNavBar(
+                index: i,
+                // Coming back to Home reloads the numbers.
+                onTap: (v) => setState(() {
+                  if (v == 0 && i != 0) _homeVersion++;
+                  _tab = v;
+                }),
+                items: [for (final t in tabs) (t.$2, t.$3, t.$1 == 'home' ? 'Home' : t.$4.split(' ').first)],
+              ),
+      ),
     );
   }
 }
@@ -95,28 +143,76 @@ class _LeaveQueueState extends State<LeaveQueue> {
       key: ValueKey(_v),
       load: () async => (await widget.api.get('/leave/queue', query: {'role': widget.role})) as List<dynamic>,
       builder: (context, rows, _) => rows.isEmpty
-          ? ListView(children: const [Padding(padding: EdgeInsets.all(32), child: Center(child: Text('Nothing waiting.')))])
-          : ListView(padding: const EdgeInsets.all(12), children: [
+          ? ListView(children: const [
+              SizedBox(height: 40),
+              EmptyState(icon: Icons.inbox_outlined, title: 'All caught up', message: 'No leave is waiting for you.'),
+            ])
+          : ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 24), children: [
               for (final a in rows.cast<Map<String, dynamic>>())
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: AppCard(
+                    padding: const EdgeInsets.all(16),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('${a['scholar']['name']} (${a['scholar']['roll_no']}, ${a['scholar']['programme']})',
-                          style: const TextStyle(fontWeight: FontWeight.w600)),
-                      Text('${a['type_label']} · ${a['days']} day(s) · '
-                          '${shortDate(a['from_date'])} – ${shortDate(a['to_date'])}'),
-                      Text('Reason: ${a['reason']}'),
-                      if ((a['supervisor_note'] ?? '').toString().isNotEmpty) Text('Supervisor: ${a['supervisor_note']}'),
-                      if ((a['dean_note'] ?? '').toString().isNotEmpty) Text('Dean: ${a['dean_note']}'),
-                      if (a['needs_dean'] == true) const Text('Academic duty beyond 30 days: Dean (R&I) approval needed.'),
-                      if (a['has_attachment'] == true) const Text('Document attached (open on the web register).'),
-                      const SizedBox(height: 6),
-                      Text(_balanceLine(a['balances'] as Map<String, dynamic>),
-                          style: Theme.of(context).textTheme.bodySmall),
-                      Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                        TextButton(onPressed: () => _decide(a, false), child: Text(isAdmin ? 'Return' : 'Decline')),
-                        FilledButton(onPressed: () => _decide(a, true), child: Text(isAdmin ? 'Confirm' : 'Approve')),
+                      Row(children: [
+                        InitialsAvatar(a['scholar']['name'].toString(), size: 40),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(a['scholar']['name'].toString(), style: Theme.of(context).textTheme.titleMedium),
+                            Text('${a['scholar']['roll_no']} · ${a['scholar']['programme']}',
+                                style: Theme.of(context).textTheme.bodySmall),
+                          ]),
+                        ),
+                        StatusPill('${a['days']} ${a['days'] == 1 ? 'day' : 'days'}', tone: PillTone.leave),
+                      ]),
+                      const SizedBox(height: 14),
+                      Text('${a['type_label']}', style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 2),
+                      Text(dateRange(a['from_date'], a['to_date']), style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 10),
+                      Text('“${a['reason']}”', style: Theme.of(context).textTheme.bodyMedium),
+                      if ((a['supervisor_note'] ?? '').toString().isNotEmpty ||
+                          (a['dean_note'] ?? '').toString().isNotEmpty ||
+                          a['needs_dean'] == true ||
+                          a['has_attachment'] == true) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: AppColors.canvas, borderRadius: BorderRadius.circular(12)),
+                          child: Text(
+                            [
+                              if ((a['supervisor_note'] ?? '').toString().isNotEmpty) 'Supervisor: ${a['supervisor_note']}',
+                              if ((a['dean_note'] ?? '').toString().isNotEmpty) 'Dean: ${a['dean_note']}',
+                              if (a['needs_dean'] == true) 'Academic duty beyond 30 days needs the Dean (R&I).',
+                              if (a['has_attachment'] == true) 'Document attached (open it on the web register).',
+                            ].join('\n'),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.inkSoft),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      Text(_balanceLine(a['balances'] as Map<String, dynamic>), style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 14),
+                      Row(children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger, minimumSize: const Size(0, 46)),
+                            onPressed: () => _decide(a, false),
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            label: Text(isAdmin ? 'Return' : 'Decline'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(minimumSize: const Size(0, 46)),
+                            onPressed: () => _decide(a, true),
+                            icon: const Icon(Icons.check_rounded, size: 18),
+                            label: Text(isAdmin ? 'Confirm' : 'Approve'),
+                          ),
+                        ),
                       ]),
                     ]),
                   ),
@@ -126,7 +222,7 @@ class _LeaveQueueState extends State<LeaveQueue> {
   }
 
   static String _balanceLine(Map<String, dynamic> b) => (b['pools'] as List)
-      .map((p) => '${p['label']}: ${p['left']} left')
+      .map((p) => '${{'ORDINARY': 'Ordinary', 'MEDICAL': 'Medical', 'SEMESTER': 'Semester', 'ACADEMIC': 'Academic'}[p['pool']] ?? p['label']} ${p['left']} left')
       .join(' · ');
 }
 

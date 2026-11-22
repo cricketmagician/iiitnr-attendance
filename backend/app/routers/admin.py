@@ -10,14 +10,14 @@ import ipaddress
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from ..clock import Clock, get_clock, windows
-from ..daybook import evaluate_day, month_grid, scholars
+from ..clock import Clock, get_clock, holidays_between, is_working_day, windows
+from ..daybook import MIN_SESSIONS, evaluate_day, leaves_in, marks_by_day, month_grid, scholars
 from ..db import get_db
-from ..models import (Attempt, CampusNetwork, DayReview, Device, Holiday, LeaveAdjustment, Person, SessionWindow,
-                      Setting)
+from ..models import (Attempt, CampusNetwork, DayReview, Device, Holiday, LeaveAdjustment, LeaveApplication, Person,
+                      SessionWindow, Setting)
 from ..rules import DEFAULTS, leave_year, settings
 from ..security import Actor, actor, api_error, audit, require_role
 
@@ -142,6 +142,27 @@ def revoke_device(device_pk: int, a: Actor = Depends(admin_only), db: Session = 
     audit(db, now, a.person.email, "device.revoke", d.device_id)
     db.commit()
     return device_json(d)
+
+
+# ---------------------------------------------------------------- face reset
+
+class FaceResetIn(BaseModel):
+    email: str
+    reason: str = Field(min_length=3, max_length=300)
+
+
+@router.post("/face-reset")
+def face_reset(body: FaceResetIn, a: Actor = Depends(admin_only), db: Session = Depends(get_db),
+               clk: Clock = Depends(get_clock)):
+    """Clears a scholar's registered face so they can enrol again (e.g. wrong face enrolled)."""
+    now = clk.now()
+    p = db.scalar(select(Person).where(Person.email == body.email.lower().strip()))
+    if p is None:
+        raise api_error(404, "NOT_FOUND", "Scholar not found.")
+    p.face_embedding, p.face_enrolled_at = None, None
+    audit(db, now, a.person.email, "face.reset", p.email, body.reason.strip())
+    db.commit()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------- leave balance adjustments
@@ -302,7 +323,7 @@ def del_holiday(day: dt.date, a: Actor = Depends(admin_only), db: Session = Depe
 
 def visible_scholars(db: Session, p: Person, department: str | None) -> list[Person]:
     rows = scholars(db)
-    if p.has("admin"):
+    if p.has("admin") or p.has("dean_ri"):
         pass
     elif p.has("hod"):
         rows = [s for s in rows if s.department == p.department]
@@ -336,3 +357,103 @@ def register(m: str, department: str | None = None, format: str = "json", a: Act
                         t["P"], t["P*"], t["L"], t["A"], t["R"]])
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="attendance-{m}.csv"'})
+
+
+# ---------------------------------------------------------------- dashboard (admin, Dean, HoD, supervisor)
+
+STAFF_ROLES = {
+    "admin": ("Attendance Office", "All scholars"),
+    "dean_ri": ("Dean (R&I)", "All scholars"),
+    "hod": ("Head of Department", "Your department"),
+    "supervisor": ("Research Supervisor", "Your scholars"),
+}
+
+
+def _pct(t: dict) -> int | None:
+    present = t["P"] + t["P*"]
+    decided = present + t["A"]
+    return round(present * 100 / decided) if decided else None
+
+
+@router.get("/dashboard")
+def dashboard(a: Actor = Depends(actor), db: Session = Depends(get_db), clk: Clock = Depends(get_clock)):
+    """One screen of numbers for a staff member: their scholars today, this month, and what waits for them."""
+    p = a.person
+    mine = [r for r in STAFF_ROLES if p.has(r)]
+    if not mine:
+        raise api_error(403, "FORBIDDEN", "You do not have permission for this.")
+    now = clk.now()
+    today = now.date()
+    people = visible_scholars(db, p, None)
+    ids = [s.id for s in people]
+
+    # Today
+    hol = holidays_between(db, today, today)
+    working = is_working_day(today, hol)
+    marks = marks_by_day(db, ids, today, today)
+    on_leave = {lv.person_id for lv in leaves_in(db, ids, today, today)}
+    sessions = []
+    for w in windows(db):
+        sessions.append({
+            "session": w.session, "label": w.label,
+            "start": w.start_time.strftime("%H:%M"), "end": w.end_time.strftime("%H:%M"),
+            "open": working and w.start_time <= now.time() <= w.end_time,
+            "marked": sum(1 for i in ids if w.session in marks.get((i, today), {})),
+        })
+    checked_in = sum(1 for i in ids if marks.get((i, today)))
+
+    # This month
+    grid = month_grid(db, people, today.strftime("%Y-%m"), now)
+    totals = {"P": 0, "P*": 0, "L": 0, "A": 0, "R": 0}
+    roster = []
+    for r in grid:
+        for k in totals:
+            totals[k] += r["totals"][k]
+        s = marks.get((r["person_id"], today), {})
+        if r["person_id"] in on_leave:
+            state = "leave"
+        elif len(s) >= MIN_SESSIONS:
+            state = "present"
+        elif s:
+            state = "partial"
+        elif not working:
+            state = "off"
+        else:
+            state = "none"
+        roster.append({
+            "name": r["name"], "roll_no": r["roll_no"], "programme": r["programme"], "department": r["department"],
+            "today": state, "sessions_today": "".join(k for k in "MAE" if k in s),
+            "pct": _pct(r["totals"]), "absent": r["totals"]["A"], "review": r["totals"]["R"],
+        })
+    # Lowest attendance first, people with no decided days last
+    attention = sorted([x for x in roster if x["pct"] is not None and x["pct"] < 75], key=lambda x: x["pct"])[:5]
+
+    # Waiting for this person
+    pending: dict[str, int] = {}
+    def count(q):
+        return db.scalar(select(func.count()).select_from(q.subquery())) or 0
+    if p.has("supervisor"):
+        pending["leave_supervisor"] = count(select(LeaveApplication.id).join(Person, Person.id == LeaveApplication.person_id)
+                                            .where(LeaveApplication.status == "pending_supervisor",
+                                                   Person.supervisor_email == p.email))
+    if p.has("dean_ri"):
+        pending["leave_dean"] = count(select(LeaveApplication.id).where(LeaveApplication.status == "pending_dean"))
+    if p.has("admin"):
+        pending["leave_admin"] = count(select(LeaveApplication.id).where(LeaveApplication.status == "pending_admin"))
+        pending["reviews"] = count(select(DayReview.id).where(DayReview.status == "pending"))
+        pending["devices"] = count(select(Device.id).where(Device.status == "pending"))
+
+    title, scope = STAFF_ROLES[mine[0]]
+    if mine[0] == "hod" and p.department:
+        scope = f"{p.department} department"
+    return {
+        "role": mine[0], "roles": mine, "title": title, "scope": scope,
+        "date": today.isoformat(), "working_day": working, "holiday": hol.get(today),
+        "scholars": len(people),
+        "today": {"checked_in": checked_in, "on_leave": len(on_leave), "not_seen": max(len(people) - checked_in - len(on_leave), 0) if working else 0,
+                  "sessions": sessions},
+        "month": {"label": today.strftime("%B %Y"), "pct": _pct(totals), "totals": totals},
+        "pending": pending,
+        "attention": attention,
+        "roster": sorted(roster, key=lambda x: ({"none": 0, "partial": 1, "present": 2, "leave": 3, "off": 4}[x["today"]], x["name"])),
+    }

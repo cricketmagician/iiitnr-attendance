@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from .clock import clock
-from .config import get_settings
+from .config import check_production_settings, get_settings
 from .db import Base, engine
 from .routers import admin, attendance, auth, leave
 from .security import api_error
@@ -46,23 +46,18 @@ async def _scheduler():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    check_production_settings(get_settings())
+    if get_settings().dev_mode:
+        log.warning("ATT_DEV_MODE is ON: password-less /auth/dev-token login is enabled. Never expose this server.")
     if os.environ.get("ATT_CREATE_TABLES", "true").lower() == "true":
         Base.metadata.create_all(engine)
         try:
             from .db import SessionLocal
             from .models import Person
             with SessionLocal() as db:
-                if db.query(Person).count() == 0:
-                    samples = [
-                        Person(email="scholar1@iiitnr.edu.in", name="Aarav Sharma", roll_no="PHD202401", programme="PhD", funding="institute", roles="scholar", active=True),
-                        Person(email="mtech1@iiitnr.edu.in", name="Priya Patel", roll_no="MT202401", programme="MTech", funding="institute", roles="scholar", active=True),
-                        Person(email="guide1@iiitnr.edu.in", name="Dr. Rajesh Guide", roll_no="FAC001", programme="Faculty", funding="institute", roles="guide", active=True),
-                        Person(email="hod.sm@iiitnr.edu.in", name="HoD SM Dept", roll_no="HOD001", programme="Faculty", funding="institute", roles="hod", active=True),
-                        Person(email="dean.ri@iiitnr.edu.in", name="Dean R&I", roll_no="DEAN001", programme="Dean", funding="institute", roles="dean", active=True),
-                        Person(email="attendance.office@iiitnr.edu.in", name="Attendance Office", roll_no="ADMIN001", programme="Staff", funding="institute", roles="admin", active=True),
-                    ]
-                    db.add_all(samples)
-                    db.commit()
+                # Demo accounts only on a dev machine; production people come from scripts/import_people.py
+                if get_settings().dev_mode:
+                    _seed_demo_people(db)
         except Exception:
             log.exception("DB seeding error")
     task = None
@@ -71,6 +66,37 @@ async def lifespan(app: FastAPI):
     yield
     if task:
         task.cancel()
+
+
+# Demo people for a dev server. Scholars sit in the S&M department under guide1,
+# so the supervisor, HoD and Dean dashboards all have someone to show.
+DEMO_PEOPLE = [
+    dict(email="scholar1@iiitnr.edu.in", name="Aarav Sharma", roll_no="PHD202401", programme="PhD", roles="scholar",
+         department="S&M", supervisor_email="guide1@iiitnr.edu.in"),
+    dict(email="mtech1@iiitnr.edu.in", name="Priya Patel", roll_no="MT202401", programme="MTech", roles="scholar",
+         department="S&M", supervisor_email="guide1@iiitnr.edu.in"),
+    dict(email="guide1@iiitnr.edu.in", name="Dr. Rajesh Guide", roll_no="FAC001", programme=None, roles="supervisor",
+         department="S&M"),
+    dict(email="hod.sm@iiitnr.edu.in", name="HoD, S&M", roll_no="HOD001", programme=None, roles="hod", department="S&M"),
+    dict(email="dean.ri@iiitnr.edu.in", name="Dean (R&I)", roll_no="DEAN001", programme=None, roles="dean_ri"),
+    dict(email="attendance.office@iiitnr.edu.in", name="Attendance Office", roll_no="ADMIN001", programme=None,
+         roles="admin"),
+]
+
+
+def _seed_demo_people(db) -> None:
+    """Create the demo people, or bring older demo rows up to date (roles, department, supervisor)."""
+    from .models import Person
+    for d in DEMO_PEOPLE:
+        p = db.query(Person).filter(Person.email == d["email"]).one_or_none()
+        if p is None:
+            db.add(Person(funding="institute", active=True, **d))
+            continue
+        p.roles = d["roles"]
+        p.programme = d["programme"]
+        p.department = p.department or d.get("department", "")
+        p.supervisor_email = p.supervisor_email or d.get("supervisor_email", "")
+    db.commit()
 
 
 def create_app() -> FastAPI:
@@ -108,7 +134,6 @@ def create_app() -> FastAPI:
             os.path.abspath(os.path.join(os.path.dirname(__file__), "../../flutter/build/app/outputs/flutter-apk/app-release.apk")),
             os.path.abspath(os.path.join(os.path.dirname(__file__), "../../flutter/build/app/outputs/apk/release/app-release.apk")),
             os.path.abspath(os.path.join(os.path.dirname(__file__), "../../flutter/build/app/outputs/flutter-apk/app-debug.apk")),
-            "/Users/neerajsingh/Documents/IIIT NR Attendance/iiitnr-scholar-attendance/flutter/build/app/outputs/apk/release/app-release.apk",
         ]
         for p in candidates:
             if os.path.exists(p) and os.path.getsize(p) > 1000:

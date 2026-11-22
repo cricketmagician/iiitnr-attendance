@@ -11,7 +11,9 @@ import 'api.dart';
 class GuardKioskScreen extends StatefulWidget {
   final String? baseUrl;
   final AttendanceApi? api;
-  const GuardKioskScreen({super.key, this.baseUrl, this.api});
+  /// Sent as X-Kiosk-Key when the kiosk runs without a logged-in admin/guard.
+  final String? kioskKey;
+  const GuardKioskScreen({super.key, this.baseUrl, this.api, this.kioskKey});
 
   @override
   State<GuardKioskScreen> createState() => _GuardKioskScreenState();
@@ -56,7 +58,8 @@ class _GuardKioskScreenState extends State<GuardKioskScreen> {
         res = await widget.api!.get('/att/guard/qr') as Map<String, dynamic>;
       } else {
         final base = widget.baseUrl ?? 'https://iiitnr-attendance.onrender.com';
-        final response = await http.get(Uri.parse('$base/att/guard/qr'));
+        final response = await http.get(Uri.parse('$base/att/guard/qr'),
+            headers: {if (widget.kioskKey != null) 'X-Kiosk-Key': widget.kioskKey!});
         if (response.statusCode == 200) {
           res = jsonDecode(response.body) as Map<String, dynamic>;
         }

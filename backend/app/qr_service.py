@@ -13,8 +13,16 @@ from app.config import get_settings
 
 
 ROTATION_INTERVAL_SECONDS = 3
-# Allow up to 60 seconds (20 slots) in production for scanning, front-camera selfie capture, and tapping Confirm
-MAX_TOLERANCE_SECONDS = 60
+# Time allowed between scanning the QR and submitting the mark (selfie + confirm).
+MAX_TOLERANCE_SECONDS = 30
+
+
+def _qr_key() -> bytes:
+    """Separate key for QR signatures, so a QR key and the login-token key are never the same."""
+    s = get_settings()
+    if s.qr_secret:
+        return s.qr_secret.encode("utf-8")
+    return hmac.new(s.jwt_secret.encode("utf-8"), b"iiitnr-guard-qr-v1", hashlib.sha256).digest()
 
 
 def generate_guard_qr(session: str) -> Dict[str, Any]:
@@ -24,9 +32,8 @@ def generate_guard_qr(session: str) -> Dict[str, Any]:
     slot = now // ROTATION_INTERVAL_SECONDS
     seconds_remaining = ROTATION_INTERVAL_SECONDS - (now % ROTATION_INTERVAL_SECONDS)
     
-    secret = get_settings().jwt_secret
     msg = f"IIITNR-ATT:{session}:{slot}".encode("utf-8")
-    sig = hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()[:16]
+    sig = hmac.new(_qr_key(), msg, hashlib.sha256).hexdigest()[:16]
     
     qr_payload = f"IIITNR-ATT:{session}:{slot}:{sig}"
     
@@ -78,9 +85,8 @@ def verify_guard_qr(
         return False, "Invalid slot in QR code."
 
     # Verify HMAC signature
-    secret = get_settings().jwt_secret
     msg = f"IIITNR-ATT:{session}:{slot}".encode("utf-8")
-    expected_sig = hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()[:16]
+    expected_sig = hmac.new(_qr_key(), msg, hashlib.sha256).hexdigest()[:16]
 
     if not hmac.compare_digest(sig, expected_sig):
         return False, "Counterfeit or unauthorized Guard QR code."
@@ -88,7 +94,10 @@ def verify_guard_qr(
     # Check expiration / freshness
     now = int(time.time())
     current_slot = now // ROTATION_INTERVAL_SECONDS
-    slot_drift = abs(current_slot - slot)
+    slot_drift = current_slot - slot
+    if slot_drift < -1:  # from the future
+        return False, "Guard QR Code is not valid yet. Please scan the live QR code again."
+    slot_drift = abs(slot_drift)
 
     if max_drift_seconds is not None:
         effective_tolerance = max_drift_seconds

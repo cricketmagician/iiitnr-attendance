@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 import '../api.dart';
 import '../attendance_confirm_screen.dart';
 import '../face_check.dart';
-import '../guard_kiosk_screen.dart';
 import '../qr_scanner_screen.dart';
 import '../reminders.dart';
 import '../ui_common.dart';
 
 class TodayTab extends StatefulWidget {
   final AttendanceApi api;
-  const TodayTab({super.key, required this.api});
+  final Map<String, dynamic> me;
+  final VoidCallback onProfile;
+  const TodayTab({super.key, required this.api, required this.me, required this.onProfile});
   @override
   State<TodayTab> createState() => _TodayTabState();
 }
@@ -55,28 +57,29 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
     }
   }
 
+  // ------------------------------------------------------------ marking flow
+
   Future<void> _mark() async {
     final sessions = (today?['sessions'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     final open = sessions.where((s) => s['state'] == 'open').toList();
     final label = open.isNotEmpty ? (open.first['label'] as String? ?? 'Session') : 'Attendance';
 
-    // Step 1: Scan Guard's 3-second Rotating Dynamic QR Code
+    // Step 1: scan the guard desk's rotating QR code
     final qrToken = await Navigator.push<String>(
       context,
       MaterialPageRoute(builder: (_) => QRScannerScreen(sessionLabel: label)),
     );
     if (qrToken == null || !mounted) return;
 
-    // Small delay to let camera hardware release back sensor before front camera opens
+    // Let the back camera release before the front camera opens
     await Future.delayed(const Duration(milliseconds: 250));
     if (!mounted) return;
 
-    // Step 2 & 3: Live Face Verification and Confirmation Screen
+    // Step 2: live selfie, then confirm
     String? base64Image;
     while (mounted) {
       base64Image = await FaceCheck.captureFace(context, sessionLabel: label);
       if (base64Image == null || !mounted) return;
-
       final confirmed = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
@@ -88,21 +91,16 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
           ),
         ),
       );
-
       if (confirmed == true) break;
     }
-
     if (base64Image == null || !mounted) return;
 
     setState(() => busy = true);
     try {
-      final r = await widget.api.post('/att/mark', {
-        'face_image': base64Image,
-        'qr_token': qrToken,
-      });
+      final r = await widget.api.post('/att/mark', {'face_image': base64Image, 'qr_token': qrToken});
       if (!mounted) return;
       setState(() => today = r['today'] as Map<String, dynamic>);
-      _showSuccessCelebration(context, r, label);
+      _showSuccess(r as Map, label);
       AttendanceReminders.sync(widget.api).catchError((_) {});
     } catch (e) {
       if (mounted) showMessage(context, e);
@@ -112,150 +110,59 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
     }
   }
 
-  void _showSuccessCelebration(BuildContext context, Map r, String label) {
-    HapticFeedback.heavyImpact();
+  void _showSuccess(Map r, String label) {
+    HapticFeedback.mediumImpact();
+    final marked = today?['marked_count'] ?? 1;
+    final required = today?['required'] ?? 2;
+    final faceStatus = r['face_status']?.toString() ?? '';
+    final matchPct = r['match_pct'];
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-          boxShadow: [
-            BoxShadow(color: Colors.black26, blurRadius: 25, offset: Offset(0, -5)),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFCBD5E1),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  width: 90,
-                  height: 90,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFFD1FAE5),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF10B981).withOpacity(0.25),
-                        blurRadius: 20,
-                        spreadRadius: 4,
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF059669), Color(0xFF10B981)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                  child: const Center(
-                    child: Icon(Icons.check_rounded, color: Colors.white, size: 36),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Attendance Verified! 🎉',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '$label Session marked present with Guard 3s QR & Live Face match.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF64748B),
-                height: 1.35,
-              ),
+              width: 64,
+              height: 64,
+              decoration: const BoxDecoration(color: AppColors.successSoft, shape: BoxShape.circle),
+              child: const Icon(Icons.check_rounded, color: AppColors.success, size: 36),
             ),
             const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  Column(
-                    children: [
-                      const Text(
-                        'TODAY\'S PROGRESS',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8), letterSpacing: 0.5),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${today?['marked_count'] ?? 1} / ${today?['required'] ?? 2} Sessions',
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                      ),
-                    ],
-                  ),
-                  Container(width: 1, height: 32, color: const Color(0xFFE2E8F0)),
-                  const Column(
-                    children: [
-                      Text(
-                        'ACTIVE STREAK',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8), letterSpacing: 0.5),
-                      ),
-                      SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Text('🔥', style: TextStyle(fontSize: 14)),
-                          SizedBox(width: 4),
-                          Text(
-                            '14 Days',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFD97706)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+            Text('$label marked', style: Theme.of(ctx).textTheme.headlineSmall),
+            const SizedBox(height: 6),
+            Text(
+              marked >= required
+                  ? "That's $marked of $required sessions. Today counts as present."
+                  : "That's $marked of $required sessions. Mark ${required - marked} more today to be counted present.",
+              style: Theme.of(ctx).textTheme.bodyMedium,
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+            const Divider(),
+            DetailRow(icon: Icons.schedule_rounded, label: 'Marked at', value: r['marked_at']?.toString() ?? '—'),
+            DetailRow(
+              icon: Icons.qr_code_2_rounded,
+              label: 'Guard QR',
+              value: r['qr_status'] == 'Verified' ? 'Verified' : 'Not used',
+              valueColor: r['qr_status'] == 'Verified' ? AppColors.success : null,
+            ),
+            DetailRow(
+              icon: Icons.face_retouching_natural_rounded,
+              label: 'Face check',
+              value: switch (faceStatus) {
+                'Verified' => 'Matched ($matchPct%)',
+                'Enrolled' => 'Face registered',
+                _ => 'Not used',
+              },
+              valueColor: faceStatus == 'Verified' || faceStatus == 'Enrolled' ? AppColors.success : null,
+            ),
+            const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
-              height: 52,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F172A),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Done', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-              ),
+              child: FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Done')),
             ),
-          ],
+          ]),
         ),
       ),
     );
@@ -263,777 +170,289 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
 
   Future<void> _giveReason(Map r) async {
     final c = TextEditingController(text: r['scholar_reason'] ?? '');
-    final ok = await showDialog<bool>(
+    final ok = await showModalBottomSheet<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Reason for ${niceDate(r['date'])}'),
-        content: TextField(
-          controller: c,
-          maxLines: 3,
-          maxLength: 1000,
-          decoration: const InputDecoration(
-            hintText: 'e.g. working in research lab, hardware test setup',
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + MediaQuery.of(ctx).viewInsets.bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Why was ${shortDate(r['date'])} short?', style: Theme.of(ctx).textTheme.headlineSmall),
+          const SizedBox(height: 6),
+          Text('The attendance office reads this before deciding the day.',
+              style: Theme.of(ctx).textTheme.bodyMedium),
+          const SizedBox(height: 16),
+          TextField(
+            controller: c,
+            autofocus: true,
+            maxLines: 4,
+            maxLength: 1000,
+            decoration: const InputDecoration(hintText: 'e.g. I was in the research lab running a hardware test'),
           ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Submit')),
-        ],
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Send to office')),
+          ),
+        ]),
       ),
     );
     if (ok != true) return;
     try {
       await widget.api.post('/att/reviews/${r['id']}/reason', {'reason': c.text.trim()});
-      if (mounted) showMessage(context, 'Reason submitted for office review.', ok: true);
+      if (mounted) showMessage(context, 'Sent to the attendance office.', ok: true);
       _load();
     } catch (e) {
       if (mounted) showMessage(context, e);
     }
   }
 
-  String _getGreeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
+  // ------------------------------------------------------------ build
+
+  String _greeting() {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
     return 'Good evening';
-  }
-
-  Widget _buildWeeklyStrip() {
-    final now = DateTime.now();
-    final monday = now.subtract(Duration(days: now.weekday - 1));
-    final weekDays = List.generate(6, (i) => monday.add(Duration(days: i))); // Mon - Sat
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: weekDays.map((d) {
-          final isToday = d.year == now.year && d.month == now.month && d.day == now.day;
-          final isPast = d.isBefore(DateTime(now.year, now.month, now.day));
-          final dayName = ['M', 'T', 'W', 'T', 'F', 'S'][d.weekday - 1];
-
-          return Container(
-            width: 48,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(
-              color: isToday
-                  ? const Color(0xFF2563EB)
-                  : (isPast ? const Color(0xFFF1F5F9) : Colors.white),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isToday ? const Color(0xFF1D4ED8) : const Color(0xFFE2E8F0),
-                width: isToday ? 1.5 : 1,
-              ),
-              boxShadow: isToday
-                  ? [
-                      BoxShadow(
-                        color: const Color(0xFF2563EB).withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      )
-                    ]
-                  : null,
-            ),
-            child: Column(
-              children: [
-                Text(
-                  dayName,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: isToday ? Colors.white.withOpacity(0.85) : const Color(0xFF94A3B8),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${d.day}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: isToday ? Colors.white : const Color(0xFF1E293B),
-                  ),
-                ),
-                if (isPast) ...[
-                  const SizedBox(height: 4),
-                  Container(
-                    width: 4,
-                    height: 4,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF10B981),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          );
-        }).toList(),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (error != null && today == null) return ErrorRetry(error: error!, onRetry: _load);
-    if (today == null) return const Loading();
+    if (today == null && error == null) return const Loading();
+    if (today == null) return SafeArea(child: ErrorRetry(error: error!, onRetry: _load));
     final t = today!;
     final sessions = (t['sessions'] as List).cast<Map<String, dynamic>>();
-    final open = sessions.where((s) => s['state'] == 'open').toList();
-    final marked = t['marked_count'] as int;
-    final required = t['required'] as int;
-    final isComplete = t['day_complete'] == true;
-    final progress = required > 0 ? (marked / required).clamp(0.0, 1.0) : 0.0;
+    final firstName = (widget.me['name'] ?? 'Scholar').toString().split(' ').first;
 
     return RefreshIndicator(
+      color: AppColors.brand,
       onRefresh: _load,
-      color: const Color(0xFF2563EB),
       child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: EdgeInsets.zero,
         children: [
-          // 1. Personalized Greeting Header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${_getGreeting()}, Scholar! 👋',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    niceDate(t['date']),
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.blueGrey.shade600,
-                    ),
-                  ),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFBFDBFE)),
+          GradientHeader(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(DateFormat('EEEE, d MMMM').format(DateTime.parse(t['date'])).toUpperCase(),
+                        style: onGradientCaption),
+                    const SizedBox(height: 6),
+                    Text('${_greeting()},\n$firstName', style: onGradientTitle),
+                  ]),
                 ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.verified, size: 14, color: Color(0xFF2563EB)),
-                    SizedBox(width: 4),
-                    Text(
-                      'Biometric 2FA',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1D4ED8),
-                      ),
-                    ),
-                  ],
+                GestureDetector(
+                  onTap: widget.onProfile,
+                  child: Container(
+                    width: 46,
+                    height: 46,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), shape: BoxShape.circle),
+                    child: Text(initials(widget.me['name']?.toString() ?? '?'),
+                        style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.white, fontSize: 15)),
+                  ),
                 ),
-              ),
-            ],
+              ]),
+              const SizedBox(height: 26),
+              _hero(t, sessions),
+            ]),
           ),
-
-          // 2. Weekly Day Strip (Mobbin: Joi & Insight Timer pattern)
-          _buildWeeklyStrip(),
-
-          // 3. Weekend or Leave Banner Check
-          if (t['working_day'] != true)
-            _buildSpecialStatusCard(
-              icon: Icons.beach_access_rounded,
-              color: Colors.indigo,
-              title: t['holiday'] != null ? 'Institute Holiday: ${t['holiday']}' : 'Weekend (No Attendance Required)',
-              subtitle: 'Attendance windows are closed for official weekend holiday.',
-            )
-          else if (t['on_leave'] != null)
-            _buildSpecialStatusCard(
-              icon: Icons.event_available_rounded,
-              color: Colors.teal,
-              title: 'On Approved Leave Today',
-              subtitle: 'Your leave application is approved. No penalty applies.',
-            )
-          else ...[
-            // 4. Hero Attendance Progress Card (Modern Gradient & Radial Meter)
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF0B192C), Color(0xFF1E3E62), Color(0xFF000000)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF1E3E62).withOpacity(0.35),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      // Radial Progress Ring
-                      SizedBox(
-                        width: 72,
-                        height: 72,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            CircularProgressIndicator(
-                              value: progress,
-                              strokeWidth: 7,
-                              strokeCap: StrokeCap.round,
-                              backgroundColor: Colors.white.withOpacity(0.12),
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                isComplete ? const Color(0xFF10B981) : const Color(0xFF38BDF8),
-                              ),
-                            ),
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  '$marked/$required',
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                Text(
-                                  isComplete ? 'DONE' : 'SESSIONS',
-                                  style: TextStyle(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w700,
-                                    color: isComplete ? const Color(0xFF34D399) : const Color(0xFF94A3B8),
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 18),
-                      // Text info
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: isComplete ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  isComplete ? 'DAY COMPLETE' : 'IN PROGRESS',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 1,
-                                    color: isComplete ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              isComplete ? 'Marked Present for Today! 🎉' : '$marked of 3 Sessions Marked',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              isComplete
-                                  ? 'Attendance criteria met. Your daily stipend is secured.'
-                                  : 'Need at least 2 sessions to count as full day present.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white.withOpacity(0.7),
-                                height: 1.25,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  // Micro Stats Chips
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        Row(
-                          children: [
-                            Text('🔥', style: TextStyle(fontSize: 14)),
-                            SizedBox(width: 6),
-                            Text(
-                              '14-Day Streak',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
-                            ),
-                          ],
-                        ),
-                        Text('•', style: TextStyle(color: Colors.white38)),
-                        Row(
-                          children: [
-                            Icon(Icons.shield_outlined, size: 14, color: Color(0xFF38BDF8)),
-                            SizedBox(width: 6),
-                            Text(
-                              'Guard QR + Face Match',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // 5. Interactive Timeline Session Cards
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'TODAY\'S TIME WINDOWS',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF64748B),
-                    letterSpacing: 1.1,
-                  ),
-                ),
-                Text(
-                  '3 Slots / Day',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8)),
-                ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              SectionHeader("Today's sessions", trailing: 'Need ${t['required']} of ${sessions.length}'),
+              for (final s in sessions) Padding(padding: const EdgeInsets.only(bottom: 10), child: _sessionCard(s)),
+              if (reviews.isNotEmpty) ...[
+                SectionHeader('Needs your reason', trailing: '${reviews.length}'),
+                ...reviews.map((r) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _reviewCard(r as Map<String, dynamic>),
+                    )),
               ],
-            ),
-            const SizedBox(height: 12),
-
-            ...sessions.map((s) => _buildSessionTimelineCard(s)),
-            const SizedBox(height: 20),
-
-            // 6. Main Heroic CTA Button: Scan QR & Mark Attendance
-            if (open.isNotEmpty)
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF2563EB), Color(0xFF4F46E5)],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF2563EB).withOpacity(0.4),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(18),
-                    onTap: busy ? null : _mark,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          busy
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-                                )
-                              : const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 24),
-                          const SizedBox(width: 12),
-                          Text(
-                            busy ? 'Verifying 2FA...' : 'Scan Guard QR & Mark (${open.first['label']})',
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.schedule, color: Colors.grey.shade600, size: 22),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        isComplete
-                            ? 'All attendance requirements completed for today! 🎉'
-                            : 'No attendance window is open right now. Next session opens soon.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            const SizedBox(height: 14),
-
-            // 7. Quick Tool: Guard Kiosk Launcher
-            InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => GuardKioskScreen(api: widget.api)),
-              ),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.02),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.shield_outlined, size: 20, color: Color(0xFF0F172A)),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Launch Guard Desk Kiosk (Dynamic 3s QR)',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1E293B),
-                        ),
-                      ),
-                    ),
-                    Icon(Icons.chevron_right, size: 18, color: Colors.grey),
-                  ],
-                ),
-              ),
-            ),
-          ],
-
-          // 8. Days Awaiting Office Review (if any)
-          if (reviews.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                const Icon(Icons.warning_amber_rounded, size: 18, color: Color(0xFFD97706)),
-                const SizedBox(width: 6),
-                Text(
-                  'ATTENDANCE REVIEWS (${reviews.length})',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFFD97706),
-                    letterSpacing: 1.1,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...reviews.map((r) => Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFFBEB),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFFDE68A)),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              niceDate(r['date']),
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF92400E)),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              r['scholar_reason']?.toString().isNotEmpty == true
-                                  ? 'Note: ${r['scholar_reason']}'
-                                  : 'Fewer than 2 sessions marked. Tap to explain.',
-                              style: const TextStyle(fontSize: 11, color: Color(0xFFB45309)),
-                            ),
-                          ],
-                        ),
-                      ),
-                      FilledButton.tonal(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFFDE68A),
-                          foregroundColor: const Color(0xFF78350F),
-                          visualDensity: VisualDensity.compact,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        onPressed: () => _giveReason(r),
-                        child: const Text('Explain', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
-                      ),
-                    ],
-                  ),
-                )),
-          ],
-          const SizedBox(height: 32),
+            ]),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildSessionTimelineCard(Map<String, dynamic> s) {
-    final state = s['state'] as String;
-    final isMarked = state == 'marked';
-    final isOpen = state == 'open';
+  /// Ring + what to do now + the one action, all on the gradient.
+  Widget _hero(Map<String, dynamic> t, List<Map<String, dynamic>> sessions) {
+    final marked = t['marked_count'] as int;
+    final required = t['required'] as int;
+    final open = sessions.where((s) => s['state'] == 'open').toList();
+    final upcoming = sessions.where((s) => s['state'] == 'upcoming').toList();
 
-    Color cardBg;
-    Border border;
-    Widget statusBadge;
-    Widget iconWidget;
+    late final String title;
+    late final String body;
+    Widget? action;
+    var showSteps = false;
 
-    if (isMarked) {
-      cardBg = const Color(0xFFF0FDF4);
-      border = Border.all(color: const Color(0xFFBBF7D0), width: 1.2);
-      iconWidget = Container(
-        padding: const EdgeInsets.all(8),
-        decoration: const BoxDecoration(
-          color: Color(0xFFDCFCE7),
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 20),
+    if (t['working_day'] != true) {
+      title = t['holiday'] != null ? 'Holiday' : 'Day off';
+      body = t['holiday']?.toString() ?? 'No attendance on weekends. Enjoy!';
+    } else if (t['on_leave'] != null) {
+      title = "You're on leave";
+      body = 'Approved ${t['on_leave'].toString().toLowerCase()} leave covers today.';
+    } else if (t['day_complete'] == true) {
+      title = 'All done for today';
+      body = '$marked sessions marked. Today counts as present.';
+    } else if (open.isNotEmpty) {
+      final s = open.first;
+      title = '${s['label']} is open';
+      body = 'Mark before ${s['end']} to keep today on track.';
+      showSteps = true;
+      action = OnGradientButton(
+        label: busy ? 'Marking…' : 'Mark ${s['label'].toString().toLowerCase()} attendance',
+        icon: Icons.qr_code_scanner_rounded,
+        busy: busy,
+        onPressed: _mark,
       );
-      statusBadge = Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: const Color(0xFFDCFCE7),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          'MARKED AT ${s['marked_at']}',
-          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF15803D)),
-        ),
-      );
-    } else if (isOpen) {
-      cardBg = const Color(0xFFEFF6FF);
-      border = Border.all(color: const Color(0xFF60A5FA), width: 1.5);
-      iconWidget = Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: const Color(0xFFDBEAFE),
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF3B82F6).withOpacity(0.3),
-              blurRadius: 8,
-              spreadRadius: 1,
-            ),
-          ],
-        ),
-        child: const Icon(Icons.radio_button_checked_rounded, color: Color(0xFF2563EB), size: 20),
-      );
-      statusBadge = Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: const Color(0xFF2563EB),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Text(
-          '⚡ LIVE NOW',
-          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
-        ),
-      );
+    } else if (upcoming.isNotEmpty) {
+      final s = upcoming.first;
+      final left = required - marked;
+      title = 'Next: ${s['label']}';
+      body = left > 0
+          ? 'Opens at ${s['start']}. Mark $left more ${left == 1 ? 'session' : 'sessions'} today.'
+          : 'Opens at ${s['start']}. You are on track for today.';
+      action = OnGradientButton(label: 'Opens at ${s['start']}', icon: Icons.schedule_rounded);
     } else {
-      cardBg = Colors.white;
-      border = Border.all(color: const Color(0xFFE2E8F0));
-      iconWidget = Container(
-        padding: const EdgeInsets.all(8),
-        decoration: const BoxDecoration(
-          color: Color(0xFFF1F5F9),
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.schedule_rounded, color: Color(0xFF94A3B8), size: 20),
-      );
-      statusBadge = Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          state == 'missed' ? 'NOT MARKED' : 'OPENS AT ${s['start']}',
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: state == 'missed' ? const Color(0xFFEF4444) : const Color(0xFF64748B),
-          ),
-        ),
-      );
+      title = 'Day is short';
+      body = '$marked of $required sessions marked. The office will review it; add a reason below.';
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(18),
-        border: border,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          iconWidget,
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '${s['label']} Session',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                    statusBadge,
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Time window: ${s['start']} – ${s['end']}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.blueGrey.shade600,
-                  ),
-                ),
-              ],
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        SizedBox(
+          width: 96,
+          height: 96,
+          child: Stack(alignment: Alignment.center, children: [
+            SizedBox.expand(
+              child: CircularProgressIndicator(
+                value: required == 0 ? 0 : (marked / required).clamp(0, 1).toDouble(),
+                strokeWidth: 7,
+                strokeCap: StrokeCap.round,
+                backgroundColor: Colors.white.withOpacity(0.1),
+                color: const Color(0xFF4ADE80),
+              ),
             ),
+            Column(mainAxisSize: MainAxisSize.min, children: [
+              Text('$marked/$required',
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white, height: 1)),
+              const SizedBox(height: 2),
+              Text('marked', style: onGradientCaption.copyWith(fontSize: 10.5)),
+            ]),
+          ]),
+        ),
+        const SizedBox(width: 18),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
+            const SizedBox(height: 6),
+            Text(body, style: onGradientBody),
+          ]),
+        ),
+      ]),
+      if (action != null) ...[const SizedBox(height: 22), action],
+      if (showSteps) ...[
+        const SizedBox(height: 12),
+        Row(children: [
+          _step('1', 'Scan QR'),
+          const SizedBox(width: 8),
+          _step('2', 'Selfie'),
+          const SizedBox(width: 8),
+          _step('3', 'Done'),
+        ]),
+      ],
+    ]);
+  }
+
+  Widget _step(String n, String label) => Expanded(
+        child: GlassTile(
+          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 10),
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Container(
+              width: 20,
+              height: 20,
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+              child: Text(n, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.ink)),
+            ),
+            const SizedBox(width: 6),
+            Text(label, style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w700)),
+          ]),
+        ),
+      );
+
+  Widget _sessionCard(Map<String, dynamic> s) {
+    final state = s['state'] as String;
+    final icon = switch (s['session']) {
+      'M' => Icons.wb_twilight_rounded,
+      'A' => Icons.wb_sunny_outlined,
+      _ => Icons.nights_stay_outlined,
+    };
+    final done = state == 'marked';
+    final pill = switch (state) {
+      'marked' => StatusPill('Marked ${s['marked_at'] ?? ''}'.trim(), tone: PillTone.success),
+      'open' => const StatusPill('Open now', tone: PillTone.brand),
+      'missed' => const StatusPill('Missed', tone: PillTone.danger),
+      'upcoming' => StatusPill('At ${s['start']}', icon: Icons.schedule_rounded),
+      _ => const StatusPill('No session'),
+    };
+    return AppCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: done ? AppColors.ink : AppColors.neutralSoft,
+            borderRadius: BorderRadius.circular(15),
           ),
-        ],
-      ),
+          child: Icon(done ? Icons.check_rounded : icon, color: done ? Colors.white : AppColors.inkSoft, size: 24),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(s['label'].toString(), style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 3),
+            Text('${s['start']} – ${s['end']}', style: Theme.of(context).textTheme.bodySmall),
+          ]),
+        ),
+        pill,
+      ]),
     );
   }
 
-  Widget _buildSpecialStatusCard({
-    required IconData icon,
-    required Color color,
-    required String title,
-    required String subtitle,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: color, size: 28),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF64748B),
-                    height: 1.3,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+  Widget _reviewCard(Map<String, dynamic> r) {
+    final marked = (r['sessions_marked'] ?? '').toString();
+    final hasReason = (r['scholar_reason'] ?? '').toString().isNotEmpty;
+    return AppCard(
+      padding: const EdgeInsets.all(16),
+      child: Row(children: [
+        Container(
+          width: 44,
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: AppColors.warningSoft, borderRadius: BorderRadius.circular(12)),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Text(DateFormat('d').format(DateTime.parse(r['date'])),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.warning, height: 1)),
+            Text(DateFormat('MMM').format(DateTime.parse(r['date'])).toUpperCase(),
+                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.warning)),
+          ]),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(marked.isEmpty ? 'No sessions marked' : '${marked.length} of 3 sessions marked',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 2),
+            Text(hasReason ? '“${r['scholar_reason']}”' : 'Waiting for office review',
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+          ]),
+        ),
+        TextButton(onPressed: () => _giveReason(r), child: Text(hasReason ? 'Edit' : 'Add reason')),
+      ]),
     );
   }
 }

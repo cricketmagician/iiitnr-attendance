@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import datetime as dt
+import hmac
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..clock import Clock, get_clock, holidays_between, is_working_day, last_window_end, open_window, windows
@@ -33,7 +35,7 @@ def me(a: Actor = Depends(actor)):
         "email": p.email, "name": p.name, "roll_no": p.roll_no, "programme": p.programme,
         "department": p.department, "funding": p.funding,
         "joining_date": p.joining_date.isoformat() if p.joining_date else None,
-        "roles": [r.strip() for r in p.roles.split(",") if r.strip()],
+        "roles": p.role_list,
         "is_scholar": p.is_scholar,
         "device": {"device_id": a.device.device_id, "status": a.device.status} if a.device else None,
     }
@@ -177,7 +179,7 @@ def schedule(days: int = 14, a: Actor = Depends(require_scholar), db: Session = 
         select(Mark).where(Mark.person_id == a.person.id, Mark.date == start)).all()}
     out, d = [], start
     while d <= end:
-        is_work = is_working_day(d, hol) or (get_settings().dev_mode and d == dt.date(2026, 11, 21))
+        is_work = is_working_day(d, hol)
         if is_work and covered_by_leave(db, a.person.id, d) is None:
             out.append({"date": d.isoformat(),
                         "marked": sorted(marked_today) if d == start else []})
@@ -199,9 +201,29 @@ class MarkIn(BaseModel):
     qr_token: Optional[str] = None
 
 
+def _kiosk_allowed(request: Request, db: Session) -> bool:
+    """The live QR is shown only on the guard kiosk (X-Kiosk-Key) or to a logged-in admin/guard.
+    Scholars must never be able to fetch it, or they could mark from anywhere."""
+    if get_settings().dev_mode:  # testing: any screen may act as the kiosk
+        return True
+    key = get_settings().kiosk_key
+    sent = request.headers.get("X-Kiosk-Key", "")
+    if key and sent and hmac.compare_digest(sent.encode(), key.encode()):
+        return True
+    if request.headers.get("Authorization", "").startswith("Bearer "):
+        try:
+            p = current_person(request, db)
+        except HTTPException:
+            return False
+        return p.has("admin") or p.has("guard")
+    return False
+
+
 @router.get("/guard/qr")
-def guard_qr(db: Session = Depends(get_db), clk: Clock = Depends(get_clock)):
-    """Provides current dynamic 3-second rotating QR token for Guard / Kiosk screen."""
+def guard_qr(request: Request, db: Session = Depends(get_db), clk: Clock = Depends(get_clock)):
+    """Current rotating QR token for the Guard / Kiosk screen (kiosk key or admin/guard login)."""
+    if not _kiosk_allowed(request, db):
+        raise api_error(403, "KIOSK_ONLY", "The guard QR is shown only on the guard desk kiosk.")
     now = clk.now()
     w = open_window(db, now)
     if get_settings().dev_mode and not w:
@@ -222,7 +244,11 @@ class EnrolFaceIn(BaseModel):
 @router.post("/face/enrol")
 def enrol_face(body: EnrolFaceIn, a: Actor = Depends(require_scholar), db: Session = Depends(get_db),
                clk: Clock = Depends(get_clock)):
-    """Supervised face enrolment: generates and stores the reference face embedding."""
+    """One-time face enrolment. Changing an enrolled face needs the admin to reset it first
+    (POST /admin/face-reset), so nobody can swap in a friend's face."""
+    if a.person.face_embedding is not None:
+        raise api_error(409, "FACE_ALREADY_ENROLLED",
+                        "Your face is already registered. Ask the attendance office to reset it.")
     try:
         raw = parse_and_validate_face_image(body.image)
         vec = generate_face_embedding(raw)
@@ -248,7 +274,10 @@ class TestVerifyIn(BaseModel):
 
 @router.post("/face/test-verify")
 def test_verify_face(body: TestVerifyIn, db: Session = Depends(get_db), clk: Clock = Depends(get_clock)):
-    """Open test verification endpoint for web/iOS testers to test Device Lock + Guard QR + AI Face match."""
+    """TESTING ONLY (ATT_DEV_MODE=true): web/iOS testers try Device Lock + Guard QR + Face match without the app.
+    Unauthenticated by design, so it does not exist when dev mode is off."""
+    if not get_settings().dev_mode:
+        raise api_error(404, "NOT_FOUND", "Not Found")
     p = db.scalar(select(Person).where(Person.email == body.email.lower()))
     if p is None:
         raise api_error(404, "PERSON_NOT_FOUND", f"Scholar {body.email} not found.")
@@ -373,6 +402,9 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
 
     # Guard 3-second Rotating Dynamic QR Verification Check
     qr_status = "Skipped"
+    if get_settings().require_guard_qr and not (body and body.qr_token):
+        _refuse(db, p, now, w.session, "QR_REQUIRED", ip, dev_id, 400,
+                "Scan the live QR code at the guard desk to mark attendance.")
     if body and body.qr_token:
         ok, reason = verify_guard_qr(body.qr_token, w.session)
         if not ok:
@@ -404,7 +436,7 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
                 match_pct = int(score * 100)
         except ValueError as e:
             _refuse(db, p, now, w.session, "INVALID_FACE_IMAGE", ip, dev_id, 400, str(e))
-    elif p.face_embedding is not None:
+    elif p.face_embedding is not None or get_settings().require_face:
         _refuse(db, p, now, w.session, "FACE_REQUIRED", ip, dev_id, 400,
                 "Live face capture is required for attendance.")
 
@@ -412,7 +444,11 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
         _refuse(db, p, now, w.session, "ALREADY_MARKED", ip, dev_id, 409,
                 f"{w.label} attendance is already marked.")
     db.add(Mark(person_id=p.id, date=today, session=w.session, marked_at=now, device_id=dev_id, client_ip=ip))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise api_error(409, "ALREADY_MARKED", f"{w.label} attendance is already marked.")
 
     qr_note = " & Guard QR Verified" if qr_status == "Verified" else ""
     if face_status == "Enrolled":

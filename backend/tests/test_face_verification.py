@@ -1,16 +1,57 @@
 import base64
+import hashlib
+import math
+import os
 from pathlib import Path
+
 import pytest
-from conftest import HOME_IP
+
+from app import face_service
+from app.routers import attendance as att_router
 
 
 def make_dummy_face(prefix: str = "scholar_face_sample") -> str:
-    """Returns a valid dummy base64 JPEG-like payload."""
-    payload = (prefix * 50).encode()  # > 500 bytes
+    """Returns a dummy base64 payload (> 500 bytes)."""
+    payload = (prefix * 50).encode()
     return base64.b64encode(payload).decode()
 
 
-def test_face_enrol_and_verification_flow(env, s1):
+@pytest.fixture
+def fake_model(monkeypatch):
+    """Test-only stand-in for the face model: a deterministic vector per payload."""
+    def fake(raw: bytes):
+        h = hashlib.sha512(raw).digest() + hashlib.sha512(raw + b"x").digest()
+        v = [(b - 128.0) / 128.0 for b in h]
+        n = math.sqrt(sum(x * x for x in v))
+        return [x / n for x in v]
+    monkeypatch.setattr(face_service, "generate_face_embedding", fake)
+    monkeypatch.setattr(att_router, "generate_face_embedding", fake)
+
+
+def test_non_image_bytes_are_rejected_not_hashed():
+    """Regression: random bytes used to become a replayable 'face' (synthetic embedding)."""
+    with pytest.raises(ValueError):
+        face_service.generate_face_embedding(os.urandom(800))
+
+
+def test_face_cannot_be_re_enrolled_without_admin(env, s1, fake_model):
+    assert s1.req("POST", "/att/face/enrol", {"image": make_dummy_face("my_own_face_sample_")}).status_code == 200
+    r = s1.req("POST", "/att/face/enrol", {"image": make_dummy_face("a_friends_face_sample_")})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "FACE_ALREADY_ENROLLED"
+    r = env.client.post("/admin/face-reset", json={"email": "s1@iiitnr.edu.in", "reason": "wrong face"},
+                        headers=env.staff("office@iiitnr.edu.in"))
+    assert r.status_code == 200
+    assert s1.req("POST", "/att/face/enrol", {"image": make_dummy_face("my_own_face_sample_")}).status_code == 200
+
+
+def test_face_required_when_enabled(env, s1):
+    from app.config import get_settings
+    get_settings().require_face = True
+    r = s1.req("POST", "/att/mark")
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "FACE_REQUIRED"
+
+
+def test_face_enrol_and_verification_flow(env, s1, fake_model):
     # 1. Enrol s1 face
     face_img = make_dummy_face("scholar_1_face_data_")
     r = s1.req("POST", "/att/face/enrol", {"image": face_img})
@@ -46,6 +87,8 @@ def test_face_enrol_invalid_image(env, s1):
 def test_real_ai_face_detection_and_matching(env, s2):
     """Verifies real deep learning face detection and cosine matching via YuNet + SFace."""
     fixtures_dir = Path(__file__).resolve().parent / "fixtures"
+    if not (fixtures_dir / "face_a.jpg").exists():
+        pytest.skip("tests/fixtures/face_a.jpg is missing (two photos of the same person are needed)")
     face_a_bytes = (fixtures_dir / "face_a.jpg").read_bytes()
     face_b_bytes = (fixtures_dir / "face_b.jpg").read_bytes()
 

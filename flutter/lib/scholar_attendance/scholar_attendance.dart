@@ -23,7 +23,9 @@ export 'reminders.dart' show AttendanceReminders;
 
 class ScholarAttendanceEntry extends StatefulWidget {
   final AttendanceConfig config;
-  const ScholarAttendanceEntry({super.key, required this.config});
+  /// Called when the person taps "Sign out" in their profile sheet.
+  final VoidCallback? onLogout;
+  const ScholarAttendanceEntry({super.key, required this.config, this.onLogout});
   @override
   State<ScholarAttendanceEntry> createState() => _ScholarAttendanceEntryState();
 }
@@ -74,16 +76,29 @@ class _ScholarAttendanceEntryState extends State<ScholarAttendanceEntry> {
       return PhoneSetupPage(api: api, problem: deviceProblem!, onDone: _load);
     }
     if (error != null) {
-      return Scaffold(appBar: AppBar(title: const Text('Attendance')), body: ErrorRetry(error: error!, onRetry: _load));
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Attendance'),
+          actions: [if (widget.onLogout != null) TextButton(onPressed: widget.onLogout, child: const Text('Sign out'))],
+        ),
+        body: ErrorRetry(error: error!, onRetry: _load),
+      );
     }
     final roles = (me!['roles'] as List).cast<String>();
-    if (me!['is_scholar'] == true) return ScholarHome(api: api, me: me!);
+    if (me!['is_scholar'] == true) return ScholarHome(api: api, me: me!, onLogout: widget.onLogout);
     if (roles.any((r) => const ['supervisor', 'hod', 'dean_ri', 'admin'].contains(r))) {
-      return StaffHome(api: api, me: me!);
+      return StaffHome(api: api, me: me!, onLogout: widget.onLogout);
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('Attendance')),
-      body: const Center(child: Text('Attendance is for PhD and MTech scholars.')),
+      appBar: AppBar(
+        title: const Text('Attendance'),
+        actions: [if (widget.onLogout != null) TextButton(onPressed: widget.onLogout, child: const Text('Sign out'))],
+      ),
+      body: const EmptyState(
+        icon: Icons.school_outlined,
+        title: 'Attendance is for scholars',
+        message: 'This account has no scholar or approver role. Contact the attendance office if this is wrong.',
+      ),
     );
   }
 }

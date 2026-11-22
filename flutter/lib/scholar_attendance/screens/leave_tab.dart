@@ -4,6 +4,53 @@ import '../api.dart';
 import '../ui_common.dart';
 import 'leave_apply_page.dart';
 
+const leaveTypeShort = {
+  'CASUAL': 'Casual leave',
+  'MEDICAL': 'Medical leave',
+  'ACADEMIC': 'Academic duty',
+  'MATERNITY': 'Maternity leave',
+  'PATERNITY': 'Paternity leave',
+};
+
+const leaveTypeIcon = {
+  'CASUAL': Icons.beach_access_rounded,
+  'MEDICAL': Icons.medical_services_outlined,
+  'ACADEMIC': Icons.school_outlined,
+  'MATERNITY': Icons.child_friendly_outlined,
+  'PATERNITY': Icons.child_friendly_outlined,
+};
+
+const leaveTypeColors = {
+  'CASUAL': [Color(0xFF38BDF8), Color(0xFF0284C7)],
+  'MEDICAL': [Color(0xFFFB7185), Color(0xFFE11D48)],
+  'ACADEMIC': [Color(0xFFA78BFA), Color(0xFF6D28D9)],
+  'MATERNITY': [Color(0xFFF472B6), Color(0xFFDB2777)],
+  'PATERNITY': [Color(0xFF34D399), Color(0xFF059669)],
+};
+
+StatusPill leaveStatusPill(Map<String, dynamic> a) {
+  final status = a['status'] as String? ?? '';
+  final text = const {
+        'pending_supervisor': 'With supervisor',
+        'pending_dean': 'With Dean (R&I)',
+        'pending_admin': 'With office',
+        'confirmed': 'Approved',
+        'declined': 'Declined',
+        'returned': 'Returned',
+        'withdrawn': 'Withdrawn',
+        'cancelled': 'Cancelled',
+      }[status] ??
+      (a['status_text'] ?? status).toString();
+  final tone = switch (status) {
+    'confirmed' => PillTone.success,
+    'declined' => PillTone.danger,
+    'returned' => PillTone.warning,
+    'pending_supervisor' || 'pending_dean' || 'pending_admin' => PillTone.brand,
+    _ => PillTone.neutral,
+  };
+  return StatusPill(text, tone: tone);
+}
+
 class LeaveTab extends StatefulWidget {
   final AttendanceApi api;
   const LeaveTab({super.key, required this.api});
@@ -16,267 +63,238 @@ class _LeaveTabState extends State<LeaveTab> {
 
   void _refresh() => setState(() => _version++);
 
+  Future<void> _apply() async {
+    final done = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => LeaveApplyPage(api: widget.api)),
+    );
+    if (done == true) _refresh();
+  }
+
+  Future<void> _withdraw(Map<String, dynamic> a, VoidCallback reload) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Withdraw this application?'),
+        content: Text('${leaveTypeShort[a['leave_type']] ?? 'Leave'}, ${dateRange(a['from_date'], a['to_date'])}. '
+            'You can apply again later.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep')),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Withdraw'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await widget.api.post('/leave/${a['id']}/withdraw');
+      if (mounted) showMessage(context, 'Application withdrawn.', ok: true);
+      reload();
+    } catch (e) {
+      if (mounted) showMessage(context, e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: const Color(0xFF2563EB),
-        foregroundColor: Colors.white,
-        elevation: 4,
-        onPressed: () async {
-          final done = await Navigator.push<bool>(
-            context,
-            MaterialPageRoute(builder: (_) => LeaveApplyPage(api: widget.api)),
-          );
-          if (done == true) _refresh();
-        },
-        icon: const Icon(Icons.add_rounded, size: 20),
-        label: const Text('Apply Leave', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-      ),
-      body: Loader<Map<String, dynamic>>(
-        key: ValueKey(_version),
-        load: () async => (await widget.api.get('/leave/mine')) as Map<String, dynamic>,
-        builder: (context, data, reload) {
-          final b = data['balances'] as Map<String, dynamic>;
-          final apps = (data['applications'] as List).cast<Map<String, dynamic>>();
-          final pools = (b['pools'] as List).cast<Map<String, dynamic>>();
+    return Loader<Map<String, dynamic>>(
+      key: ValueKey(_version),
+      load: () async => (await widget.api.get('/leave/mine')) as Map<String, dynamic>,
+      builder: (context, data, reload) {
+        final b = data['balances'] as Map<String, dynamic>;
+        final apps = (data['applications'] as List).cast<Map<String, dynamic>>();
+        final pools = {
+          for (final p in (b['pools'] as List).cast<Map<String, dynamic>>()) p['pool'] as String: p,
+        };
+        final ordinary = pools['ORDINARY'];
 
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-            children: [
-              // Header Banner
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'LEAVE BALANCES',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF64748B),
-                      letterSpacing: 1.1,
+        return ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            GradientHeader(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Leave', style: onGradientTitle),
+                const SizedBox(height: 22),
+                if (ordinary != null) ...[
+                  Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text(_fmt(ordinary['left']),
+                        style: const TextStyle(
+                            fontSize: 56, fontWeight: FontWeight.w800, color: Colors.white, height: 1, letterSpacing: -2)),
+                    const SizedBox(width: 10),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text('days of leave\nleft this year', style: onGradientBody.copyWith(height: 1.25)),
                     ),
-                  ),
-                  Text(
-                    'Year: ${shortDate(b['leave_year'][0])} – ${shortDate(b['leave_year'][1])}',
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // Visual Gradient Balance Cards
-              Row(
-                children: pools.map((p) {
-                  final left = p['left'] as num? ?? 0;
-                  final entitled = p['entitled'] as num? ?? 1;
-                  final label = p['label'] as String? ?? 'Leave';
-                  return Expanded(
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.02),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            label,
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 6),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              Text(
-                                _n(left),
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF0F172A),
-                                ),
-                              ),
-                              Text(
-                                '/${_n(entitled)}',
-                                style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value: entitled > 0 ? (left / entitled).clamp(0.0, 1.0) : 0,
-                              minHeight: 4,
-                              backgroundColor: const Color(0xFFF1F5F9),
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                left > 2 ? const Color(0xFF2563EB) : const Color(0xFFEF4444),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 12),
-
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.info_outline, size: 16, color: Color(0xFF64748B)),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Institute scholars: at most 5 days at a stretch. Weekends & holidays are exempt.',
-                        style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Applications Section
-              const Text(
-                'MY APPLICATIONS',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF64748B),
-                  letterSpacing: 1.1,
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              if (apps.isEmpty)
-                Container(
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: const Center(
-                    child: Text('No leave applications yet.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
-                  ),
-                )
-              else
-                ...apps.map((a) {
-                  final status = a['status'] as String? ?? '';
-                  final isPending = status.startsWith('pending');
-                  final isApproved = status == 'confirmed';
-
-                  Color badgeBg = isApproved
-                      ? const Color(0xFFDCFCE7)
-                      : isPending
-                          ? const Color(0xFFFEF3C7)
-                          : const Color(0xFFFFE4E6);
-                  Color badgeText = isApproved
-                      ? const Color(0xFF15803D)
-                      : isPending
-                          ? const Color(0xFFB45309)
-                          : const Color(0xFFBE123C);
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
+                  ]),
+                  const SizedBox(height: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(99),
+                    child: LinearProgressIndicator(
+                      value: (ordinary['entitled'] as num) <= 0
+                          ? 0
+                          : ((ordinary['used'] as num) / (ordinary['entitled'] as num)).clamp(0, 1).toDouble(),
+                      minHeight: 8,
+                      backgroundColor: Colors.white.withOpacity(0.1),
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              '${a['type_label']} · ${_n(a['days'])} Day${a['days'] == 1 ? '' : 's'}',
-                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(8)),
-                              child: Text(
-                                a['status_text'] ?? status,
-                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: badgeText),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '${shortDate(a['from_date'])} – ${shortDate(a['to_date'])}',
-                          style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                        ),
-                        if (_notes(a).isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text(_notes(a).trim(), style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-                        ],
-                        if (isPending) ...[
-                          const Divider(height: 16),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              style: TextButton.styleFrom(
-                                foregroundColor: const Color(0xFFEF4444),
-                                visualDensity: VisualDensity.compact,
-                              ),
-                              onPressed: () async {
-                                try {
-                                  await widget.api.post('/leave/${a['id']}/withdraw');
-                                  if (context.mounted) showMessage(context, 'Application withdrawn.', ok: true);
-                                  reload();
-                                } catch (e) {
-                                  if (context.mounted) showMessage(context, e);
-                                }
-                              },
-                              child: const Text('Withdraw Request', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  );
-                }),
-            ],
-          );
-        },
-      ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${_fmt(ordinary['used'])} of ${_fmt(ordinary['entitled'])} used · '
+                    '${shortDate(b['leave_year'][0])} – ${shortDate(b['leave_year'][1])}',
+                    style: onGradientBody.copyWith(fontSize: 13),
+                  ),
+                  const SizedBox(height: 18),
+                ],
+                Row(children: [
+                  if (pools['MEDICAL'] != null) _glassPool('Medical', pools['MEDICAL']!),
+                  if (pools['SEMESTER'] != null) ...[const SizedBox(width: 8), _glassPool('Semester', pools['SEMESTER']!)],
+                  if (pools['ACADEMIC'] != null) ...[const SizedBox(width: 8), _glassPool('Academic', pools['ACADEMIC']!)],
+                ]),
+                const SizedBox(height: 20),
+                OnGradientButton(label: 'Apply for leave', icon: Icons.add_rounded, onPressed: _apply),
+              ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: AppColors.neutralSoft, borderRadius: BorderRadius.circular(16)),
+              child: Row(children: [
+                const Icon(Icons.info_outline_rounded, size: 18, color: AppColors.inkSoft),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text('Max 5 days in a row for institute scholars. Weekends and holidays are free.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.inkSoft)),
+                ),
+              ]),
+            ),
+
+            SectionHeader('Applications', trailing: apps.isEmpty ? null : '${apps.length}'),
+            if (apps.isEmpty)
+              const AppCard(
+                child: EmptyState(
+                  icon: Icons.event_available_outlined,
+                  title: 'No applications yet',
+                  message: 'Leave you apply for will show here with its approval status.',
+                ),
+              )
+            else
+              ...apps.map((a) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _applicationCard(a, reload),
+                  )),
+              ]),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  static String _n(dynamic v) => (v is num && v == v.roundToDouble()) ? v.toInt().toString() : '$v';
-
-  static String _notes(Map a) {
-    final n = [
-      if ((a['supervisor_note'] ?? '').toString().isNotEmpty) 'Guide: ${a['supervisor_note']}',
-      if ((a['dean_note'] ?? '').toString().isNotEmpty) 'Dean: ${a['dean_note']}',
-      if ((a['admin_note'] ?? '').toString().isNotEmpty) 'Admin: ${a['admin_note']}',
-    ];
-    return n.isEmpty ? '' : '\n${n.join('\n')}';
+  String _fmt(Object? v) {
+    final n = (v as num?) ?? 0;
+    return n == n.roundToDouble() ? n.toInt().toString() : n.toStringAsFixed(1);
   }
+
+  Widget _glassPool(String label, Map<String, dynamic> p) => Expanded(
+        child: GlassTile(
+          padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(_fmt(p['left']),
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, height: 1)),
+              Text(' /${_fmt(p['entitled'])}',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.7))),
+            ]),
+            const SizedBox(height: 6),
+            Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.85))),
+          ]),
+        ),
+      );
+
+  Widget _poolRow(String label, Map<String, dynamic> p) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: Row(children: [
+          Expanded(child: Text(label, style: Theme.of(context).textTheme.bodyMedium)),
+          Text('${_fmt(p['left'])} left',
+              style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: AppColors.ink)),
+          Text(' / ${_fmt(p['entitled'])}', style: Theme.of(context).textTheme.bodySmall),
+        ]),
+      );
+
+  Widget _applicationCard(Map<String, dynamic> a, VoidCallback reload) {
+    final status = a['status'] as String? ?? '';
+    final isPending = status.startsWith('pending');
+    final days = a['days'] as num? ?? 0;
+    final notes = [
+      if ((a['supervisor_note'] ?? '').toString().isNotEmpty) 'Supervisor: ${a['supervisor_note']}',
+      if ((a['dean_note'] ?? '').toString().isNotEmpty) 'Dean: ${a['dean_note']}',
+      if ((a['admin_note'] ?? '').toString().isNotEmpty) 'Office: ${a['admin_note']}',
+    ];
+    return AppCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(color: AppColors.neutralSoft, borderRadius: BorderRadius.circular(15)),
+            child: Icon(leaveTypeIcon[a['leave_type']] ?? Icons.event_note_rounded, color: AppColors.ink, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(leaveTypeShort[a['leave_type']] ?? a['type_label'].toString(),
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 2),
+              Text('${dateRange(a['from_date'], a['to_date'])} · ${_fmt(days)} ${days == 1 ? 'day' : 'days'}',
+                  style: Theme.of(context).textTheme.bodySmall),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        Row(children: [
+          Flexible(child: leaveStatusPill(a)),
+          const Spacer(),
+          if (isPending)
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: AppColors.danger, visualDensity: VisualDensity.compact),
+              onPressed: () => _withdraw(a, reload),
+              child: const Text('Withdraw'),
+            ),
+        ]),
+        if (notes.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: AppColors.canvas, borderRadius: BorderRadius.circular(12)),
+            child: Text(notes.join('\n'), style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.inkSoft)),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+class _Bar extends StatelessWidget {
+  final num used;
+  final num total;
+  final Color color;
+  const _Bar({required this.used, required this.total, required this.color});
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+        borderRadius: BorderRadius.circular(99),
+        child: LinearProgressIndicator(
+          value: total <= 0 ? 0 : (used / total).clamp(0, 1).toDouble(),
+          minHeight: 8,
+          backgroundColor: AppColors.neutralSoft,
+          color: color,
+        ),
+      );
 }

@@ -125,11 +125,11 @@ def dev_token(body: DevLoginIn, db: Session = Depends(get_db)):
     if person is None:
         role = "scholar"
         if "guide" in email:
-            role = "guide"
+            role = "supervisor"
         elif "hod" in email:
             role = "hod"
         elif "dean" in email:
-            role = "dean"
+            role = "dean_ri"
         elif "office" in email or "admin" in email:
             role = "admin"
         name = email.split("@")[0].replace(".", " ").title()

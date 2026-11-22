@@ -8,6 +8,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.8
+      # WARNING: /tmp is wiped on every restart/redeploy. Point this at a managed
+      # Postgres (postgresql+psycopg://...) before real use.
       - key: ATT_DATABASE_URL
         value: sqlite:////tmp/attendance.db
       - key: ATT_GOOGLE_CLIENT_ID
@@ -20,9 +22,13 @@ services:
         value: "true"
       - key: ATT_TIMEZONE
         value: Asia/Kolkata
+      # TESTING MODE. Anyone can log in as anyone via /auth/dev-token while this is "true".
+      # Before real scholars use it: set ATT_DEV_MODE=false and ATT_ENFORCE_DEVICE_LOCK=true.
       - key: ATT_DEV_MODE
         value: "true"
       - key: ATT_ENFORCE_DEVICE_LOCK
         value: "false"
+      - key: ATT_KIOSK_KEY
+        generateValue: true
       - key: ATT_APK_URL
         value: https://github.com/cricketmagician/iiitnr-attendance/releases/latest/download/app-release.apk

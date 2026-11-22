@@ -13,7 +13,11 @@ services:
       - PORT=8040
       - ATT_DATABASE_URL=sqlite:////app/data/attendance.db
       - ATT_GOOGLE_CLIENT_ID=734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com
-      - ATT_JWT_SECRET=iiitnr-attendance-secure-jwt-token-key-2026
+      # Secrets come from the shell or a .env file next to this file (never commit them):
+      #   ATT_JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+      - ATT_JWT_SECRET=${ATT_JWT_SECRET:?Set ATT_JWT_SECRET (64 random hex chars)}
+      - ATT_KIOSK_KEY=${ATT_KIOSK_KEY:?Set ATT_KIOSK_KEY (random key for the guard kiosk)}
+      - ATT_ENFORCE_DEVICE_LOCK=true
       - ATT_INSTITUTE_DOMAIN=iiitnr.edu.in
       - ATT_TRUST_PROXY=true
       - ATT_TIMEZONE=Asia/Kolkata

@@ -37,7 +37,15 @@ echo "📥 Downloading OpenCV AI Face models..."
 chmod +x download_models.sh
 ./download_models.sh
 
-# 5. Setup Systemd Service
+# 5. Secrets: generated once on this server, kept in a root-only env file (never in git)
+ENV_FILE=/etc/iiitnr-attendance.env
+if [ ! -f "$ENV_FILE" ]; then
+    echo "🔐 Generating secrets in $ENV_FILE..."
+    sudo bash -c "umask 077; { echo ATT_JWT_SECRET=\$(python3 -c 'import secrets; print(secrets.token_hex(32))'); echo ATT_KIOSK_KEY=\$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))'); } > $ENV_FILE"
+    echo "   Guard kiosk URL: http://<server>/guard?key=<ATT_KIOSK_KEY from $ENV_FILE>"
+fi
+
+# 6. Setup Systemd Service
 echo "⚙️ Creating systemd service file (/etc/systemd/system/iiitnr-attendance.service)..."
 CURRENT_USER=$(whoami)
 
@@ -61,7 +69,8 @@ Environment=ATT_INSTITUTE_DOMAIN=iiitnr.edu.in
 Environment=ATT_TRUST_PROXY=true
 Environment=ATT_DEV_MODE=false
 Environment=ATT_GOOGLE_CLIENT_ID=734399685844-rocm7a76g418k6scthl5s7lvhajt4km4.apps.googleusercontent.com
-Environment=ATT_JWT_SECRET=iiitnr-attendance-production-secret-key-2026
+Environment=ATT_ENFORCE_DEVICE_LOCK=true
+EnvironmentFile=$ENV_FILE
 
 [Install]
 WantedBy=multi-user.target

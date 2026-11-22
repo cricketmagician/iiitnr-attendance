@@ -186,7 +186,9 @@ def test_register_visibility_and_csv(env, s1, s2):
     assert other == []
     r = env.client.get("/admin/register?m=2026-11&format=csv", headers=env.staff("office@iiitnr.edu.in"))
     assert r.headers["content-type"].startswith("text/csv") and "Scholar One" in r.text
-    assert env.client.get("/admin/register?m=2026-11", headers=env.staff("dean@iiitnr.edu.in")).status_code == 403
+    # Dean (R&I) oversees every scholar; a scholar cannot read the register
+    assert env.client.get("/admin/register?m=2026-11", headers=env.staff("dean@iiitnr.edu.in")).status_code == 200
+    assert env.client.get("/admin/register?m=2026-11", headers=env.staff("s1@iiitnr.edu.in")).status_code == 403
 
 
 def test_schedule_lists_working_days(env, s1):

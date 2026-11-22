@@ -80,6 +80,14 @@ class Phone:
 @pytest.fixture
 def env():
     s = get_settings()
+    # Tests must not depend on the developer's local .env
+    s.dev_mode = False
+    s.enforce_device_lock = True
+    s.kiosk_key = "test-kiosk-key"
+    s.qr_secret = ""
+    # Most tests check other rules; QR/face requirements have their own tests.
+    s.require_guard_qr = False
+    s.require_face = False
     s.trust_proxy = True
     s.jwt_secret = "test-secret-0123456789-abcdefghijklmnop"
     s.jwt_algorithm = "HS256"

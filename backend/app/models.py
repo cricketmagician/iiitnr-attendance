@@ -15,6 +15,9 @@ from .db import Base
 SESSIONS = ("M", "A", "E")  # morning, afternoon, evening
 
 
+ROLE_ALIASES = {"guide": "supervisor", "dean": "dean_ri", "office": "admin"}
+
+
 class Person(Base):
     """Scholars and staff known to this module. Kept in step with the IIITNR app's user
     list via scripts/import_people.py (or a view over the existing user table)."""
@@ -35,8 +38,18 @@ class Person(Base):
     face_embedding: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     face_enrolled_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime, nullable=True)
 
+    @property
+    def role_list(self) -> list[str]:
+        """Canonical role names. Old names (guide, dean) are read as supervisor, dean_ri."""
+        out: list[str] = []
+        for r in self.roles.split(","):
+            r = ROLE_ALIASES.get(r.strip().lower(), r.strip().lower())
+            if r and r not in out:
+                out.append(r)
+        return out
+
     def has(self, role: str) -> bool:
-        return role in {r.strip() for r in self.roles.split(",")}
+        return role in self.role_list
 
     @property
     def is_scholar(self) -> bool:

@@ -52,23 +52,68 @@ class _DayReviewsPageState extends State<DayReviewsPage> {
       key: ValueKey(_v),
       load: () async => (await widget.api.get('/admin/reviews', query: {'status': 'pending'})) as List<dynamic>,
       builder: (context, rows, _) => rows.isEmpty
-          ? ListView(children: const [Padding(padding: EdgeInsets.all(32), child: Center(child: Text('No days to review.')))])
-          : ListView(padding: const EdgeInsets.all(12), children: [
+          ? ListView(children: const [
+              SizedBox(height: 40),
+              EmptyState(icon: Icons.task_alt_rounded, title: 'No days to review', message: 'Short days appear here after 6:35 pm.'),
+            ])
+          : ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 24), children: [
               for (final r in rows.cast<Map<String, dynamic>>())
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: AppCard(
+                    padding: const EdgeInsets.all(16),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('${r['scholar']['name']} (${r['scholar']['roll_no']}) · ${niceDate(r['date'])}',
-                          style: const TextStyle(fontWeight: FontWeight.w600)),
-                      Text('${r['scholar']['programme']}, ${r['scholar']['department']}'),
-                      Text('Sessions marked: ${(r['sessions_marked'] as String).isEmpty ? 'none' : (r['sessions_marked'] as String).split('').map((s) => _sessionNames[s]).join(', ')}'),
-                      if ((r['scholar_reason'] as String).isNotEmpty) Text('Scholar says: ${r['scholar_reason']}'),
-                      for (final t in (r['refused_attempts'] as List))
-                        Text('Tried at ${t['at']}: ${t['reason']}', style: Theme.of(context).textTheme.bodySmall),
-                      Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                        TextButton(onPressed: () => _decide(r, 'absent'), child: const Text('Absent')),
-                        FilledButton(onPressed: () => _decide(r, 'present'), child: const Text('Present')),
+                      Row(children: [
+                        InitialsAvatar(r['scholar']['name'].toString(), size: 40),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(r['scholar']['name'].toString(), style: Theme.of(context).textTheme.titleMedium),
+                            Text('${r['scholar']['roll_no']} · ${r['scholar']['programme']} · ${r['scholar']['department']}',
+                                maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                          ]),
+                        ),
+                        StatusPill(shortDate(r['date']), tone: PillTone.warning),
+                      ]),
+                      const SizedBox(height: 14),
+                      Text(
+                        (r['sessions_marked'] as String).isEmpty
+                            ? 'No sessions marked'
+                            : 'Marked: ${(r['sessions_marked'] as String).split('').map((s) => _sessionNames[s]).join(', ')}',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text((r['scholar_reason'] as String).isNotEmpty ? '“${r['scholar_reason']}”' : 'No reason given yet.',
+                          style: Theme.of(context).textTheme.bodyMedium),
+                      if ((r['refused_attempts'] as List).isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: AppColors.canvas, borderRadius: BorderRadius.circular(12)),
+                          child: Text(
+                            (r['refused_attempts'] as List).map((t) => 'Tried at ${t['at']}: ${t['reason']}').join('\n'),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.inkSoft),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      Row(children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger, minimumSize: const Size(0, 46)),
+                            onPressed: () => _decide(r, 'absent'),
+                            child: const Text('Absent'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(minimumSize: const Size(0, 46)),
+                            onPressed: () => _decide(r, 'present'),
+                            child: const Text('Present'),
+                          ),
+                        ),
                       ]),
                     ]),
                   ),
@@ -78,7 +123,6 @@ class _DayReviewsPageState extends State<DayReviewsPage> {
   }
 }
 
-/// Phones, holidays, campus networks, balance adjustments, CSV export.
 class AdminMorePage extends StatelessWidget {
   final AttendanceApi api;
   const AdminMorePage({super.key, required this.api});
