@@ -134,8 +134,15 @@ async def actor(request: Request, db: Session = Depends(get_db), clk: Clock = De
                 person: Person = Depends(current_person)) -> Actor:
     """Scholars: every request must be signed by their one active phone (device lock).
     Staff (supervisor, dean, admin): login token is enough; a signed device is used if present."""
+    s = get_settings()
     now = clk.now()
     device_id = request.headers.get("X-Device-Id", "")
+
+    # When device lock is not enforced (testing mode), permit requests from any phone/browser
+    if not s.enforce_device_lock:
+        dev = db.scalar(select(Device).where(Device.device_id == device_id)) if device_id else None
+        return Actor(person, dev)
+
     if not person.is_scholar and not device_id:
         return Actor(person, None)
     ip = client_ip(request)

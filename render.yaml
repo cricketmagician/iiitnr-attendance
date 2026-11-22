@@ -22,5 +22,7 @@ services:
         value: Asia/Kolkata
       - key: ATT_DEV_MODE
         value: "true"
+      - key: ATT_ENFORCE_DEVICE_LOCK
+        value: "false"
       - key: ATT_APK_URL
         value: https://github.com/cricketmagician/iiitnr-attendance/releases/latest/download/app-release.apk

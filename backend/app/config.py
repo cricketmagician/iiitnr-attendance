@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # Dev only: enables POST /auth/dev-token. Default True for staging/testing.
     dev_mode: bool = True
 
+    # Device Lock: Enforces 1-phone per scholar via cryptographic hardware keys.
+    # Set to False during testing so any device can test without approval barriers.
+    enforce_device_lock: bool = False
+
     # Campus network check. If the API sits behind a reverse proxy (nginx),
     # set trust_proxy=true so the client IP is read from X-Forwarded-For.
     trust_proxy: bool = False

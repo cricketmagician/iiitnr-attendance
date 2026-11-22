@@ -53,6 +53,8 @@ class DeviceIn(BaseModel):
 @router.get("/device/status")
 def device_status(request: Request, person: Person = Depends(current_person), db: Session = Depends(get_db)):
     """Unsigned: lets the app find out whether this phone is registered, pending or blocked."""
+    if not get_settings().enforce_device_lock:
+        return {"status": "active", "account_has_active_phone": False}
     did = request.headers.get("X-Device-Id", "")
     dev = db.scalar(select(Device).where(Device.device_id == did)) if did else None
     has_active = db.scalar(select(Device.id).where(Device.person_id == person.id, Device.status == "active"))
@@ -67,6 +69,23 @@ async def register_device(body: DeviceIn, request: Request, person: Person = Dep
     """First phone: active at once. Any later phone: a change request the central admin approves.
     The request must be signed with the key being registered (proof the phone holds it)."""
     now = clk.now()
+    s = get_settings()
+
+    # When device lock is not enforced, auto-activate any device registration immediately
+    if not s.enforce_device_lock:
+        dev = db.scalar(select(Device).where(Device.device_id == body.device_id))
+        if dev is None:
+            dev = Device(person_id=person.id, device_id=body.device_id, hardware_id=body.hardware_id,
+                         public_key=body.public_key, platform=body.platform, model=body.model, status="active",
+                         reason=body.reason or "Auto-registered for testing", created_at=now,
+                         decided_at=now, decided_by="auto")
+            db.add(dev)
+        else:
+            dev.person_id = person.id
+            dev.status = "active"
+        db.commit()
+        return {"status": "active"}
+
     if request.headers.get("X-Device-Id", "") != body.device_id:
         raise api_error(400, "DEVICE_MISMATCH", "Device header does not match.")
     await check_signature(request, db, now, body.public_key, body.device_id)
@@ -228,7 +247,7 @@ def test_verify_face(body: TestVerifyIn, db: Session = Depends(get_db), clk: Clo
     active_dev = db.scalar(select(Device).where(Device.person_id == p.id, Device.status == "active"))
     device_locked_to_other = False
     if active_dev:
-        if body.device_id and active_dev.device_id != body.device_id:
+        if body.device_id and active_dev.device_id != body.device_id and get_settings().enforce_device_lock:
             device_locked_to_other = True
             dev_status = f"Locked to {active_dev.model or active_dev.platform} ({active_dev.device_id[:8]}...)"
         else:
@@ -321,17 +340,18 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
     working day, not already marked, and AI face verification if enrolled."""
     now = clk.now()
     p, dev = a.person, a.device
+    dev_id = dev.device_id if dev else (request.headers.get("X-Device-Id", "") or "test-device")
     ip = client_ip(request)
     today = now.date()
     if not (is_working_day(today, holidays_between(db, today, today)) or (get_settings().dev_mode and today == dt.date(2026, 11, 21))):
-        _refuse(db, p, now, "", "NOT_WORKING_DAY", ip, dev.device_id, 409, "There is no attendance today.")
+        _refuse(db, p, now, "", "NOT_WORKING_DAY", ip, dev_id, 409, "There is no attendance today.")
     w = open_window(db, now)
     if w is None:
-        _refuse(db, p, now, "", "OUTSIDE_WINDOW", ip, dev.device_id, 409,
+        _refuse(db, p, now, "", "OUTSIDE_WINDOW", ip, dev_id, 409,
                 "Attendance is not open now. Windows: " +
                 ", ".join(f"{x.start_time:%I:%M %p}–{x.end_time:%I:%M %p}" for x in windows(db)) + ".")
     if not on_campus(db, ip):
-        _refuse(db, p, now, w.session, "NOT_ON_CAMPUS", ip, dev.device_id, 403,
+        _refuse(db, p, now, w.session, "NOT_ON_CAMPUS", ip, dev_id, 403,
                 "Connect to the campus Wi-Fi to mark attendance.")
 
     # Guard 3-second Rotating Dynamic QR Verification Check
@@ -339,7 +359,7 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
     if body and body.qr_token:
         ok, reason = verify_guard_qr(body.qr_token, w.session)
         if not ok:
-            _refuse(db, p, now, w.session, "INVALID_GUARD_QR", ip, dev.device_id, 403, reason)
+            _refuse(db, p, now, w.session, "INVALID_GUARD_QR", ip, dev_id, 403, reason)
         qr_status = "Verified"
 
     # AI Face Verification Check
@@ -361,20 +381,20 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
                 # Subsequent times: Verify face against enrolled reference template!
                 is_match, score, reason = verify_face(p.face_embedding, body.face_image)
                 if not is_match:
-                    _refuse(db, p, now, w.session, "FACE_MISMATCH", ip, dev.device_id, 403,
+                    _refuse(db, p, now, w.session, "FACE_MISMATCH", ip, dev_id, 403,
                             f"Face Mismatch ({int(score * 100)}% match): Face does not match registered scholar.")
                 face_status = "Verified"
                 match_pct = int(score * 100)
         except ValueError as e:
-            _refuse(db, p, now, w.session, "INVALID_FACE_IMAGE", ip, dev.device_id, 400, str(e))
+            _refuse(db, p, now, w.session, "INVALID_FACE_IMAGE", ip, dev_id, 400, str(e))
     elif p.face_embedding is not None:
-        _refuse(db, p, now, w.session, "FACE_REQUIRED", ip, dev.device_id, 400,
+        _refuse(db, p, now, w.session, "FACE_REQUIRED", ip, dev_id, 400,
                 "Live face capture is required for attendance.")
 
     if db.scalar(select(Mark.id).where(Mark.person_id == p.id, Mark.date == today, Mark.session == w.session)):
-        _refuse(db, p, now, w.session, "ALREADY_MARKED", ip, dev.device_id, 409,
+        _refuse(db, p, now, w.session, "ALREADY_MARKED", ip, dev_id, 409,
                 f"{w.label} attendance is already marked.")
-    db.add(Mark(person_id=p.id, date=today, session=w.session, marked_at=now, device_id=dev.device_id, client_ip=ip))
+    db.add(Mark(person_id=p.id, date=today, session=w.session, marked_at=now, device_id=dev_id, client_ip=ip))
     db.commit()
 
     qr_note = " & Guard QR Verified" if qr_status == "Verified" else ""
