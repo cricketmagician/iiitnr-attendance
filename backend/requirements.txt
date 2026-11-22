@@ -8,6 +8,7 @@ pyjwt>=2.8
 python-multipart>=0.0.9
 pydantic-settings>=2.2
 google-auth>=2.20
+requests>=2.31
 opencv-python-headless>=4.8
 numpy>=1.24
 # tests
