@@ -124,16 +124,19 @@ async def register_device(body: DeviceIn, request: Request, person: Person = Dep
 def _today_payload(db: Session, person: Person, now: dt.datetime) -> dict:
     today = now.date()
     hol = holidays_between(db, today, today)
-    working = is_working_day(today, hol) or (get_settings().dev_mode and today == dt.date(2026, 11, 21))
+    working = is_working_day(today, hol) or get_settings().dev_mode
     marks = {m.session: m.marked_at.strftime("%H:%M") for m in db.scalars(
         select(Mark).where(Mark.person_id == person.id, Mark.date == today)).all()}
     leave = covered_by_leave(db, person.id, today)
+    active_win = open_window(db, now)
     sessions = []
     for w in windows(db):
         if not working:
             state = "no_session"
         elif w.session in marks:
             state = "marked"
+        elif active_win and active_win.session == w.session:
+            state = "open"
         elif now.time() < w.start_time:
             state = "upcoming"
         elif now.time() <= w.end_time:
@@ -343,14 +346,14 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
     dev_id = dev.device_id if dev else (request.headers.get("X-Device-Id", "") or "test-device")
     ip = client_ip(request)
     today = now.date()
-    if not (is_working_day(today, holidays_between(db, today, today)) or (get_settings().dev_mode and today == dt.date(2026, 11, 21))):
+    if not (is_working_day(today, holidays_between(db, today, today)) or get_settings().dev_mode):
         _refuse(db, p, now, "", "NOT_WORKING_DAY", ip, dev_id, 409, "There is no attendance today.")
     w = open_window(db, now)
     if w is None:
         _refuse(db, p, now, "", "OUTSIDE_WINDOW", ip, dev_id, 409,
                 "Attendance is not open now. Windows: " +
                 ", ".join(f"{x.start_time:%I:%M %p}–{x.end_time:%I:%M %p}" for x in windows(db)) + ".")
-    if not on_campus(db, ip):
+    if not on_campus(db, ip) and not get_settings().dev_mode:
         _refuse(db, p, now, w.session, "NOT_ON_CAMPUS", ip, dev_id, 403,
                 "Connect to the campus Wi-Fi to mark attendance.")
 

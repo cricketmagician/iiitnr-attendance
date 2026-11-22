@@ -73,6 +73,13 @@ def open_window(db: Session, now: dt.datetime) -> SessionWindow | None:
     for w in windows(db):
         if w.start_time <= t <= w.end_time:
             return w
+    if get_settings().dev_mode:
+        all_w = windows(db)
+        if all_w:
+            # Default to afternoon or morning window for active 24/7 testing
+            target = all_w[1] if len(all_w) > 1 and now.hour >= 12 else all_w[0]
+            return SessionWindow(session=target.session, label=target.label,
+                                 start_time=dt.time(0, 0), end_time=dt.time(23, 59), active=True)
     return None
 
 
