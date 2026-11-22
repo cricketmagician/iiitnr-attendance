@@ -98,9 +98,9 @@ def create_app() -> FastAPI:
         from .mobile_web_html import MOBILE_WEB_HTML
         return HTMLResponse(content=MOBILE_WEB_HTML)
 
-    @app.get("/download/app.apk", tags=["download"])
-    @app.get("/download/apk", tags=["download"])
-    @app.get("/app.apk", tags=["download"])
+    @app.api_route("/download/app.apk", methods=["GET", "HEAD"], tags=["download"])
+    @app.api_route("/download/apk", methods=["GET", "HEAD"], tags=["download"])
+    @app.api_route("/app.apk", methods=["GET", "HEAD"], tags=["download"])
     def download_apk():
         """Direct 1-click download of the Android APK."""
         from fastapi.responses import FileResponse
