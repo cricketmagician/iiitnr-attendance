@@ -14,7 +14,8 @@ from app.config import get_settings
 
 ROTATION_INTERVAL_SECONDS = 3
 # Time allowed between scanning the QR and submitting the mark (selfie + confirm).
-MAX_TOLERANCE_SECONDS = 30
+# Short, because a photo of the QR could otherwise be passed on.
+MAX_TOLERANCE_SECONDS = 15
 
 
 def _qr_key() -> bytes:

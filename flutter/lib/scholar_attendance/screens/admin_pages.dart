@@ -85,6 +85,26 @@ class _DayReviewsPageState extends State<DayReviewsPage> {
                       const SizedBox(height: 4),
                       Text((r['scholar_reason'] as String).isNotEmpty ? '“${r['scholar_reason']}”' : 'No reason given yet.',
                           style: Theme.of(context).textTheme.bodyMedium),
+                      if ((r['remark'] ?? '').toString().isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: AppColors.dangerSoft, borderRadius: BorderRadius.circular(12)),
+                          child: Text(r['remark'].toString(),
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.danger)),
+                        ),
+                      ],
+                      if ((r['marks'] as List? ?? const []).isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: 128,
+                          child: ListView(scrollDirection: Axis.horizontal, children: [
+                            for (final m in (r['marks'] as List).cast<Map<String, dynamic>>())
+                              _MarkThumb(api: widget.api, m: m),
+                          ]),
+                        ),
+                      ],
                       if ((r['refused_attempts'] as List).isNotEmpty) ...[
                         const SizedBox(height: 10),
                         Container(
@@ -346,4 +366,67 @@ class _NetworksPageState extends State<_NetworksPage> {
           ),
         ]),
       );
+}
+
+
+/// One mark in a day review: the selfie, session and what the checks said.
+class _MarkThumb extends StatelessWidget {
+  final AttendanceApi api;
+  final Map<String, dynamic> m;
+  const _MarkThumb({required this.api, required this.m});
+
+  @override
+  Widget build(BuildContext context) {
+    final live = m['live_score'] as num?;
+    final flagged = m['flagged'] == true;
+    final label = const {'M': 'Morning', 'A': 'Afternoon', 'E': 'Evening'}[m['session']] ?? m['session'];
+    return Container(
+      width: 96,
+      margin: const EdgeInsets.only(right: 10),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 96,
+            height: 80,
+            decoration: BoxDecoration(
+              color: AppColors.neutralSoft,
+              border: flagged ? Border.all(color: AppColors.danger, width: 2) : null,
+            ),
+            child: m['has_selfie'] == true
+                ? FutureBuilder(
+                    future: api.getBytes('/att/guard/marks/${m['id']}/selfie'),
+                    builder: (context, snap) => snap.hasData
+                        ? GestureDetector(
+                            onTap: () => showDialog(
+                              context: context,
+                              builder: (_) => Dialog(
+                                clipBehavior: Clip.antiAlias,
+                                child: Image.memory(snap.data!, fit: BoxFit.contain),
+                              ),
+                            ),
+                            child: Image.memory(snap.data!, fit: BoxFit.cover),
+                          )
+                        : const Center(child: Icon(Icons.image_outlined, color: AppColors.muted)),
+                  )
+                : const Center(child: Icon(Icons.no_photography_outlined, color: AppColors.muted)),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text('$label ${m['time']}',
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelSmall),
+        Text(
+          flagged
+              ? (m['flagged_by'] == 'auto' ? 'Photo check failed' : 'Flagged by guard')
+              : [
+                  if (m['proof'] == 'bluetooth') 'Near gate' else if (m['proof'] == 'qr') 'QR backup',
+                  if (live != null) 'Live ${(live * 100).round()}%',
+                ].join(' · '),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 11, color: flagged ? AppColors.danger : AppColors.muted, fontWeight: FontWeight.w600),
+        ),
+      ]),
+    );
+  }
 }

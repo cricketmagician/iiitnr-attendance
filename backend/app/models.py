@@ -128,7 +128,9 @@ class Mark(Base):
     # Proximity and evidence
     near_gate: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)   # heard the guard beacon
     ble_rssi: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    used_qr: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)       # backup: scanned the guard QR
     selfie_path: Mapped[str] = mapped_column(String(300), default="", server_default="")
+    live_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # 0..1, real face vs photo/screen
     # A guard who saw nobody at the desk flags the mark; it then stops counting until the office decides.
     flagged_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime, nullable=True)
     flagged_by: Mapped[str] = mapped_column(String(190), default="", server_default="")

@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 from ..clock import Clock, get_clock, holidays_between, is_working_day, windows
 from ..daybook import MIN_SESSIONS, evaluate_day, leaves_in, marks_by_day, month_grid, scholars
 from ..db import get_db
-from ..models import (Attempt, CampusNetwork, DayReview, Device, Holiday, LeaveAdjustment, LeaveApplication, Person,
-                      SessionWindow, Setting)
+from ..models import (Attempt, CampusNetwork, DayReview, Device, Holiday, LeaveAdjustment, LeaveApplication, Mark,
+                      Person, SessionWindow, Setting)
 from ..rules import DEFAULTS, leave_year, settings
 from ..security import Actor, actor, api_error, audit, require_role
 
@@ -39,6 +39,13 @@ def review_json(r: DayReview, db: Session) -> dict:
         "scholar": {"name": p.name, "email": p.email, "roll_no": p.roll_no, "programme": p.programme,
                     "department": p.department},
         "refused_attempts": [{"at": t.at.strftime("%H:%M"), "reason": t.reason} for t in tries],
+        # Every mark that day, counted or flagged, with its selfie for the office to look at
+        "marks": [{"id": m.id, "session": m.session, "time": m.marked_at.strftime("%H:%M"),
+                   "has_selfie": bool(m.selfie_path), "near_gate": m.near_gate, "live_score": m.live_score,
+                   "proof": "bluetooth" if m.near_gate else ("qr" if m.used_qr else "none"),
+                   "flagged": m.flagged_at is not None, "flag_note": m.flag_note, "flagged_by": m.flagged_by}
+                  for m in db.scalars(select(Mark).where(Mark.person_id == p.id, Mark.date == r.date)
+                                      .order_by(Mark.marked_at)).all()],
     }
 
 

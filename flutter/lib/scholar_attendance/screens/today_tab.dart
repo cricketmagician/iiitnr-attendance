@@ -69,11 +69,6 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
     final scanner = GateScanner();
     await scanner.start();
     if (!mounted) return scanner.stop();
-    if (scanner.problem == ScanProblem.bluetoothOff) {
-      showMessage(context, 'Turn on Bluetooth. The guard desk signal is needed to mark attendance.');
-    } else if (scanner.problem == ScanProblem.noPermission) {
-      showMessage(context, 'Allow Bluetooth (Nearby devices) for this app to mark attendance.');
-    }
     try {
       await _markWith(scanner, label);
     } finally {
@@ -82,56 +77,225 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
   }
 
   Future<void> _markWith(GateScanner scanner, String label) async {
-    // Step 1: scan the guard desk's rotating QR code
-    final qrToken = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => QRScannerScreen(sessionLabel: label)),
-    );
-    if (qrToken == null || !mounted) return;
-
-    // Let the back camera release before the front camera opens
-    await Future.delayed(const Duration(milliseconds: 250));
-    if (!mounted) return;
-
-    // Step 2: live selfie, then confirm
-    String? base64Image;
-    while (mounted) {
-      base64Image = await FaceCheck.captureFace(context, sessionLabel: label);
-      if (base64Image == null || !mounted) return;
-      final confirmed = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => AttendanceConfirmScreen(
-            base64FaceImage: base64Image!,
-            qrToken: qrToken,
-            sessionLabel: label,
-            scholarInfo: today,
-          ),
-        ),
-      );
-      if (confirmed == true) break;
-    }
-    if (base64Image == null || !mounted) return;
-
-    setState(() => busy = true);
-    try {
-      final hit = await scanner.latest(wait: const Duration(seconds: 4));
-      final r = await widget.api.post('/att/mark', {
-        'face_image': base64Image,
-        'qr_token': qrToken,
-        if (hit != null) 'ble_uuid': hit.uuid,
-        if (hit != null) 'ble_rssi': hit.rssi,
-      });
+    // Step 1: the guard desk's Bluetooth signal. Only if the phone cannot find it, scan the QR.
+    String? qrToken;
+    BeaconHit? hit;
+    if (scanner.problem == ScanProblem.none) {
+      hit = await _findDesk(scanner);
       if (!mounted) return;
-      setState(() => today = r['today'] as Map<String, dynamic>);
-      _showSuccess(r as Map, label);
-      AttendanceReminders.sync(widget.api).catchError((_) {});
-    } catch (e) {
-      if (mounted) showMessage(context, e);
-      _load();
-    } finally {
-      if (mounted) setState(() => busy = false);
     }
+    if (hit == null) {
+      final useQr = await _noSignalPrompt(scanner.problem);
+      if (!useQr || !mounted) return;
+      qrToken = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(builder: (_) => QRScannerScreen(sessionLabel: label)),
+      );
+      if (qrToken == null || !mounted) return;
+      // Let the back camera release before the front camera opens
+      await Future.delayed(const Duration(milliseconds: 250));
+      if (!mounted) return;
+    }
+
+    // Step 2: live selfie, then confirm. A failed photo check goes back here with the same QR.
+    while (mounted) {
+      String? base64Image;
+      while (mounted) {
+        base64Image = await FaceCheck.captureFace(context, sessionLabel: label);
+        if (base64Image == null || !mounted) return;
+        final confirmed = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AttendanceConfirmScreen(
+              base64FaceImage: base64Image!,
+              qrToken: qrToken ?? '',
+              proof: qrToken == null ? 'bluetooth' : 'qr',
+              sessionLabel: label,
+              scholarInfo: today,
+            ),
+          ),
+        );
+        if (confirmed == true) break;
+      }
+      if (base64Image == null || !mounted) return;
+
+      setState(() => busy = true);
+      try {
+        // The freshest signal (the code changes every 15 s); QR only when there was no signal.
+        final beacon = qrToken == null ? (await scanner.latest(wait: const Duration(seconds: 2)) ?? hit) : null;
+        final r = await widget.api.post('/att/mark', {
+          'face_image': base64Image,
+          if (qrToken != null) 'qr_token': qrToken,
+          if (beacon != null) 'ble_uuid': beacon.uuid,
+          if (beacon != null) 'ble_rssi': beacon.rssi,
+        });
+        if (!mounted) return;
+        setState(() => today = r['today'] as Map<String, dynamic>);
+        if (r['sent_to_office'] == true) {
+          _showSentToOffice(r as Map, label);
+        } else {
+          _showSuccess(r as Map, label);
+        }
+        AttendanceReminders.sync(widget.api).catchError((_) {});
+        return;
+      } on ApiException catch (e) {
+        if (!mounted) return;
+        if (e.code == 'LIVENESS_FAILED') {
+          setState(() => busy = false);
+          final again = await _retakePrompt(e.message);
+          if (again) continue; // same QR, new selfie
+          return;
+        }
+        showMessage(context, e);
+        _load();
+        return;
+      } catch (e) {
+        if (mounted) showMessage(context, e);
+        _load();
+        return;
+      } finally {
+        if (mounted) setState(() => busy = false);
+      }
+    }
+  }
+
+  /// "Looking for the guard desk" while the phone listens (up to 5 s). Returns the signal or null.
+  Future<BeaconHit?> _findDesk(GateScanner scanner) async {
+    final found = scanner.latest(wait: const Duration(seconds: 5));
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Row(children: [
+          SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 3, color: AppColors.ink)),
+          SizedBox(width: 18),
+          Expanded(child: Text('Looking for the guard desk…\nStand near the guard.')),
+        ]),
+      ),
+    );
+    final hit = await found;
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    return hit;
+  }
+
+  /// No Bluetooth signal: say why, offer the QR on the guard screen as the backup.
+  Future<bool> _noSignalPrompt(ScanProblem problem) async {
+    final (title, body) = switch (problem) {
+      ScanProblem.bluetoothOff => ('Bluetooth is off', 'Turn on Bluetooth to mark in one step, or scan the QR on the guard screen.'),
+      ScanProblem.noPermission => ('Bluetooth not allowed', 'Allow "Nearby devices" for this app, or scan the QR on the guard screen.'),
+      ScanProblem.unsupported => ('No Bluetooth signal', 'This phone cannot find the guard desk signal. Scan the QR on the guard screen.'),
+      ScanProblem.none => ('Guard desk not found', 'Move closer to the guard desk and try again, or scan the QR on the guard screen.'),
+    };
+    final r = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(color: AppColors.neutralSoft, shape: BoxShape.circle),
+              child: const Icon(Icons.bluetooth_searching_rounded, color: AppColors.ink, size: 28),
+            ),
+            const SizedBox(height: 16),
+            Text(title, style: Theme.of(ctx).textTheme.headlineSmall),
+            const SizedBox(height: 6),
+            Text(body, style: Theme.of(ctx).textTheme.bodyMedium),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                label: const Text('Scan QR instead'),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              style: TextButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+              child: const Text('Cancel'),
+            ),
+          ]),
+        ),
+      ),
+    );
+    return r == true;
+  }
+
+  Future<bool> _retakePrompt(String message) async {
+    final r = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(color: AppColors.warningSoft, shape: BoxShape.circle),
+              child: const Icon(Icons.light_mode_outlined, color: AppColors.warning, size: 28),
+            ),
+            const SizedBox(height: 16),
+            Text('Take the selfie again', style: Theme.of(ctx).textTheme.headlineSmall),
+            const SizedBox(height: 6),
+            Text(message, style: Theme.of(ctx).textTheme.bodyMedium),
+            const SizedBox(height: 12),
+            const DetailRow(icon: Icons.wb_sunny_outlined, label: 'Light', value: 'Face a light or window'),
+            const DetailRow(icon: Icons.pan_tool_outlined, label: 'Hold', value: 'Phone steady, at arm\'s length'),
+            const DetailRow(icon: Icons.face_outlined, label: 'Face', value: 'Only your face, no glasses glare'),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.camera_front_rounded),
+                label: const Text('Retake selfie'),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              style: TextButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+              child: const Text('Not now'),
+            ),
+          ]),
+        ),
+      ),
+    );
+    return r == true;
+  }
+
+  void _showSentToOffice(Map r, String label) {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(color: AppColors.warningSoft, shape: BoxShape.circle),
+              child: const Icon(Icons.hourglass_top_rounded, color: AppColors.warning, size: 28),
+            ),
+            const SizedBox(height: 16),
+            Text('$label saved for checking', style: Theme.of(ctx).textTheme.headlineSmall),
+            const SizedBox(height: 6),
+            Text(
+              'The photo check could not confirm a live face, so the attendance office will look at your selfie. '
+              'You can add a reason under Today.',
+              style: Theme.of(ctx).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            ),
+          ]),
+        ),
+      ),
+    );
   }
 
   void _showSuccess(Map r, String label) {
@@ -171,12 +335,9 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
                   label: 'Guard desk',
                   value: 'Signal found',
                   valueColor: AppColors.success),
-            DetailRow(
-              icon: Icons.qr_code_2_rounded,
-              label: 'Guard QR',
-              value: r['qr_status'] == 'Verified' ? 'Verified' : 'Not used',
-              valueColor: r['qr_status'] == 'Verified' ? AppColors.success : null,
-            ),
+            if (r['qr_status'] == 'Verified')
+              const DetailRow(
+                  icon: Icons.qr_code_2_rounded, label: 'Guard desk', value: 'QR scanned', valueColor: AppColors.success),
             DetailRow(
               icon: Icons.face_retouching_natural_rounded,
               label: 'Face check',
@@ -333,7 +494,7 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
       showSteps = true;
       action = OnGradientButton(
         label: busy ? 'Marking…' : 'Mark ${s['label'].toString().toLowerCase()} attendance',
-        icon: Icons.qr_code_scanner_rounded,
+        icon: Icons.how_to_reg_rounded,
         busy: busy,
         onPressed: _mark,
       );
@@ -386,7 +547,7 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
       if (showSteps) ...[
         const SizedBox(height: 12),
         Row(children: [
-          _step('1', 'Scan QR'),
+          _step('1', 'Near guard'),
           const SizedBox(width: 8),
           _step('2', 'Selfie'),
           const SizedBox(width: 8),

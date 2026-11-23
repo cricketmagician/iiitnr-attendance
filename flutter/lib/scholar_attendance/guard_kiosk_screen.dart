@@ -226,10 +226,10 @@ class _GuardKioskScreenState extends State<GuardKioskScreen> {
     final t = DateFormat('HH:mm:ss').parse(m['time'].toString());
     final at = DateTime(_now.year, _now.month, _now.day, t.hour, t.minute, t.second);
     final fresh = _now.difference(at).inSeconds.abs() < 12;
-    final (badgeText, badgeColor) = switch (m['near_gate']) {
-      true => ('Near gate', const Color(0xFF4ADE80)),
-      false => ('No Bluetooth', const Color(0xFFFCD34D)),
-      _ => ('Not checked', Colors.white54),
+    final (badgeText, badgeColor) = switch (m['proof']) {
+      'bluetooth' => ('Near gate', const Color(0xFF4ADE80)),
+      'qr' => ('QR backup', const Color(0xFFFCD34D)),
+      _ => ('No proof', const Color(0xFFFCA5A5)),
     };
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -270,7 +270,7 @@ class _GuardKioskScreenState extends State<GuardKioskScreen> {
             Row(children: [
               Container(width: 7, height: 7, decoration: BoxDecoration(color: flagged ? const Color(0xFFFCA5A5) : badgeColor, shape: BoxShape.circle)),
               const SizedBox(width: 5),
-              Text(flagged ? 'Flagged' : badgeText,
+              Text(flagged ? (m['flagged_by'] == 'auto' ? 'Photo check failed' : 'Flagged') : badgeText,
                   style: TextStyle(
                       color: flagged ? const Color(0xFFFCA5A5) : Colors.white.withOpacity(0.85),
                       fontSize: 11.5,
@@ -305,7 +305,7 @@ class _GuardKioskScreenState extends State<GuardKioskScreen> {
         backgroundColor: AppColors.ink,
         body: SafeArea(
           child: LayoutBuilder(builder: (context, c) {
-            final qrSize = (c.maxWidth - 96).clamp(200.0, 420.0);
+            final qrSize = ((c.maxWidth - 96) * 0.62).clamp(160.0, 300.0);
             return SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
               child: ConstrainedBox(
@@ -374,6 +374,55 @@ class _GuardKioskScreenState extends State<GuardKioskScreen> {
                   ]),
                   const SizedBox(height: 28),
 
+                  // Bluetooth signal: the normal way scholars prove they are here
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: _beaconState == BeaconState.on
+                          ? const Color(0xFF4ADE80).withOpacity(0.12)
+                          : const Color(0xFFFCD34D).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(
+                        color: _beaconState == BeaconState.on
+                            ? const Color(0xFF4ADE80).withOpacity(0.5)
+                            : const Color(0xFFFCD34D).withOpacity(0.5),
+                      ),
+                    ),
+                    child: Column(children: [
+                      Icon(
+                        _beaconState == BeaconState.on
+                            ? Icons.bluetooth_audio_rounded
+                            : Icons.bluetooth_disabled_rounded,
+                        color: _beaconState == BeaconState.on ? const Color(0xFF4ADE80) : const Color(0xFFFCD34D),
+                        size: 44,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        _beaconState == BeaconState.on ? 'Bluetooth signal on' : beaconStateText(_beaconState),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _beaconState == BeaconState.on
+                            ? 'Scholars near this desk can mark with one tap. Keep Bluetooth on and this screen open.'
+                            : 'Scholars can still use the QR below until the signal is on.',
+                        textAlign: TextAlign.center,
+                        style: onGradientBody.copyWith(fontSize: 13),
+                      ),
+                    ]),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(children: [
+                    Text('BACKUP QR', style: onGradientCaption),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('only for a phone that cannot find the signal',
+                          style: onGradientBody.copyWith(fontSize: 12)),
+                    ),
+                  ]),
+                  const SizedBox(height: 12),
                   // QR
                   Container(
                     padding: const EdgeInsets.all(20),
@@ -430,32 +479,6 @@ class _GuardKioskScreenState extends State<GuardKioskScreen> {
                   ),
                   const SizedBox(height: 28),
 
-                  // Bluetooth beacon status
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.07),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(children: [
-                      Icon(
-                        _beaconState == BeaconState.on ? Icons.bluetooth_connected_rounded : Icons.bluetooth_disabled_rounded,
-                        color: _beaconState == BeaconState.on ? const Color(0xFF4ADE80) : const Color(0xFFFCD34D),
-                        size: 20,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _beaconState == BeaconState.on
-                              ? 'Bluetooth signal on. Phones near this desk can mark.'
-                              : beaconStateText(_beaconState),
-                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ]),
-                  ),
-                  const SizedBox(height: 24),
-
                   // Live list: who just marked
                   Row(children: [
                     const Text('Just marked',
@@ -473,8 +496,8 @@ class _GuardKioskScreenState extends State<GuardKioskScreen> {
                       child: Row(children: [
                         for (final (i, (icon, label)) in const [
                           (Icons.bluetooth_searching_rounded, 'Phone near desk'),
-                          (Icons.qr_code_scanner_rounded, 'Scans QR'),
                           (Icons.face_retouching_natural_rounded, 'Selfie'),
+                          (Icons.check_circle_outline_rounded, 'Marked'),
                         ].indexed) ...[
                           if (i > 0) Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.3), size: 18),
                           Expanded(

@@ -456,7 +456,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: 12),
                           const _Rise(
                             delay: 180,
-                            child: Text('Scan the guard QR, take a selfie, done. Your month and leave live here too.',
+                            child: Text('Stand near the guard, take a selfie, done. Your month and leave live here too.',
                                 style: TextStyle(fontSize: 15.5, height: 1.45, color: AppColors.inkSoft)),
                           ),
                           const SizedBox(height: 28),

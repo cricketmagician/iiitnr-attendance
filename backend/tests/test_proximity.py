@@ -37,7 +37,7 @@ def test_beacon_token_is_signed_and_short_lived():
 def test_beacon_required_outside_dev_mode(env, s1):
     get_settings().require_ble = None   # default: required when not in dev mode
     env.clock.t = dt.datetime(2026, 11, 23, 9, 35)
-    assert code(s1.req("POST", "/att/mark", {})) == "BLE_REQUIRED"
+    assert code(s1.req("POST", "/att/mark", {})) == "PROXIMITY_REQUIRED"
     assert code(s1.req("POST", "/att/mark", {"ble_uuid": str(uuid.uuid4())})) == "BLE_INVALID"
     r = s1.req("POST", "/att/mark", {"ble_uuid": _beacon(env), "ble_rssi": -62})
     assert r.status_code == 200, r.text
@@ -84,3 +84,23 @@ def test_only_guard_desk_sees_the_feed(env, s1):
     assert code(env.client.get("/att/guard/feed")) == "KIOSK_ONLY"
     assert env.client.get("/att/guard/feed", headers=env.staff("s1@iiitnr.edu.in")).status_code == 403
     assert env.client.get("/att/guard/feed", headers=env.staff("office@iiitnr.edu.in")).status_code == 200
+
+
+def test_qr_is_the_backup_and_is_labelled(env, s1):
+    get_settings().require_ble = None
+    env.clock.t = dt.datetime(2026, 11, 23, 9, 35)
+    qr = env.client.get("/att/guard/qr", headers=KIOSK).json()["qr_string"]
+    r = s1.req("POST", "/att/mark", {"qr_token": qr})          # no Bluetooth signal, QR instead
+    assert r.status_code == 200 and r.json()["near_gate"] is False
+    feed = env.client.get("/att/guard/feed", headers=KIOSK).json()["marks"]
+    assert feed[0]["proof"] == "qr"
+
+
+def test_bluetooth_alone_is_enough(env, s1):
+    get_settings().require_ble = None
+    get_settings().require_guard_qr = True
+    env.clock.t = dt.datetime(2026, 11, 23, 9, 35)
+    r = s1.req("POST", "/att/mark", {"ble_uuid": _beacon(env)})    # no QR at all
+    assert r.status_code == 200 and r.json()["near_gate"] is True
+    assert env.client.get("/att/guard/feed", headers=KIOSK).json()["marks"][0]["proof"] == "bluetooth"
+    get_settings().require_guard_qr = False

@@ -45,7 +45,7 @@ def test_mark_requires_qr_when_enabled(env, s1):
     from app.config import get_settings
     get_settings().require_guard_qr = True
     r = s1.req("POST", "/att/mark")
-    assert r.status_code == 400 and r.json()["detail"]["code"] == "QR_REQUIRED"
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "PROXIMITY_REQUIRED"
     qr = env.client.get("/att/guard/qr", headers={"X-Kiosk-Key": "test-kiosk-key"}).json()["qr_string"]
     assert s1.req("POST", "/att/mark", {"qr_token": qr}).status_code == 200
 

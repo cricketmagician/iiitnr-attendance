@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -20,7 +20,7 @@ from ..clock import Clock, get_clock, holidays_between, is_working_day, last_win
 from ..config import get_settings
 from ..daybook import MIN_SESSIONS, month_grid
 from ..db import get_db
-from ..face_service import generate_face_embedding, parse_and_validate_face_image, verify_face
+from ..face_service import generate_face_embedding, liveness_score, parse_and_validate_face_image, verify_face
 from ..qr_service import ble_beacon, generate_guard_qr, verify_ble, verify_guard_qr
 from ..models import Attempt, DayReview, Device, Mark, Person
 from ..rules import covered_by_leave
@@ -305,7 +305,9 @@ def mark_json(m: Mark) -> dict:
         "id": m.id, "name": p.name, "roll_no": p.roll_no, "programme": p.programme, "department": p.department,
         "session": m.session, "session_label": SESSION_LABELS.get(m.session, m.session),
         "time": m.marked_at.strftime("%H:%M:%S"), "near_gate": m.near_gate, "rssi": m.ble_rssi,
+        "proof": "bluetooth" if m.near_gate else ("qr" if m.used_qr else "none"),
         "has_selfie": bool(m.selfie_path), "flagged": m.flagged_at is not None, "flag_note": m.flag_note,
+        "flagged_by": m.flagged_by, "live_score": m.live_score,
     }
 
 
@@ -335,6 +337,23 @@ class FlagIn(BaseModel):
 FLAG_PREFIX = "Guard flagged"
 
 
+def _send_to_office(db: Session, person_id: int, day: dt.date, session: str, now: dt.datetime, remark: str,
+                    exclude_mark: int | None = None) -> None:
+    """Put the day in the office's review list with a note (or add the note to an open review)."""
+    db.flush()
+    r = db.scalar(select(DayReview).where(DayReview.person_id == person_id, DayReview.date == day))
+    if r is None:
+        q = select(Mark).where(Mark.person_id == person_id, Mark.date == day, Mark.flagged_at.is_(None))
+        if exclude_mark is not None:
+            q = q.where(Mark.id != exclude_mark)
+        counted = "".join(sorted((x.session for x in db.scalars(q).all()), key="MAE".index))
+        db.add(DayReview(person_id=person_id, date=day, sessions_marked=counted, status="pending",
+                         remark=remark, created_at=now))
+    else:
+        r.status = "pending"
+        r.remark = (r.remark + "\n" if r.remark else "") + remark
+
+
 @router.post("/guard/marks/{mark_id}/flag")
 def flag_mark(mark_id: int, body: FlagIn, request: Request, db: Session = Depends(get_db),
               clk: Clock = Depends(get_clock)):
@@ -348,15 +367,7 @@ def flag_mark(mark_id: int, body: FlagIn, request: Request, db: Session = Depend
         m.flagged_at, m.flagged_by, m.flag_note = now, who, body.note.strip()
         remark = f"{FLAG_PREFIX} {SESSION_LABELS.get(m.session, m.session)} mark at {m.marked_at:%H:%M}" + \
                  (f": {body.note.strip()}" if body.note.strip() else ".")
-        r = db.scalar(select(DayReview).where(DayReview.person_id == m.person_id, DayReview.date == m.date))
-        if r is None:
-            others = "".join(x.session for x in db.scalars(select(Mark).where(
-                Mark.person_id == m.person_id, Mark.date == m.date, Mark.id != m.id, Mark.flagged_at.is_(None))).all())
-            db.add(DayReview(person_id=m.person_id, date=m.date, sessions_marked=others, status="pending",
-                             remark=remark, created_at=now))
-        else:
-            r.status = "pending"
-            r.remark = (r.remark + "\n" if r.remark else "") + remark
+        _send_to_office(db, m.person_id, m.date, m.session, now, remark, exclude_mark=m.id)
         audit(db, now, who, "mark.flag", str(m.id), body.note.strip())
         db.commit()
     return mark_json(m)
@@ -545,28 +556,30 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
         _refuse(db, p, now, w.session, "NOT_ON_CAMPUS", ip, dev_id, 403,
                 "Connect to the campus Wi-Fi to mark attendance.")
 
-    # Guard 3-second Rotating Dynamic QR Verification Check
+    # Proof of being at the guard desk: the Bluetooth beacon (normal way), or the guard QR (backup
+    # for a phone that cannot find the signal). A video call can carry the QR, so QR marks are
+    # labelled and the guard sees them in the live list.
     qr_status = "Skipped"
-    if get_settings().require_guard_qr and not (body and body.qr_token):
-        _refuse(db, p, now, w.session, "QR_REQUIRED", ip, dev_id, 400,
-                "Scan the live QR code at the guard desk to mark attendance.")
-    if body and body.qr_token:
-        ok, reason = verify_guard_qr(body.qr_token, w.session)
-        if not ok:
-            _refuse(db, p, now, w.session, "INVALID_GUARD_QR", ip, dev_id, 403, reason)
-        qr_status = "Verified"
-
-    # Bluetooth beacon: proves the phone is near the guard desk (a video call cannot carry it)
     near_gate = None
-    if body and body.ble_uuid:
+    used_qr = False
+    has_ble = bool(body and body.ble_uuid)
+    has_qr = bool(body and body.qr_token)
+    if has_ble:
         ok, reason = verify_ble(body.ble_uuid, time.time())
         if not ok:
             _refuse(db, p, now, w.session, "BLE_INVALID", ip, dev_id, 403, reason)
         near_gate = True
-    elif ble_required():
-        _refuse(db, p, now, w.session, "BLE_REQUIRED", ip, dev_id, 403,
-                "Turn on Bluetooth and stand near the guard desk, then try again.")
-    else:
+    if has_qr and not has_ble:
+        ok, reason = verify_guard_qr(body.qr_token, w.session)
+        if not ok:
+            _refuse(db, p, now, w.session, "INVALID_GUARD_QR", ip, dev_id, 403, reason)
+        qr_status = "Verified"
+        used_qr = True
+        near_gate = False
+    if not has_ble and not has_qr:
+        if get_settings().require_guard_qr or ble_required():
+            _refuse(db, p, now, w.session, "PROXIMITY_REQUIRED", ip, dev_id, 403,
+                    "Stand near the guard desk with Bluetooth on, or scan the QR on the guard screen.")
         near_gate = False
 
     # AI Face Verification Check
@@ -600,17 +613,46 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
         _refuse(db, p, now, w.session, "FACE_REQUIRED", ip, dev_id, 400,
                 "Live face capture is required for attendance.")
 
+    # Photo / screen check: a printed photo or a phone screen held to the camera
+    live = None
+    auto_flag = ""
+    s = get_settings()
+    if raw_selfie and s.liveness_mode in ("review", "reject"):
+        live = liveness_score(raw_selfie)
+        if live is not None and live < s.liveness_threshold:
+            start = dt.datetime.combine(today, dt.time.min)
+            failures = db.scalar(select(func.count()).select_from(Attempt).where(
+                Attempt.person_id == p.id, Attempt.at >= start, Attempt.session == w.session,
+                Attempt.reason == "LIVENESS_FAILED")) or 0
+            if s.liveness_mode == "reject" or failures < s.liveness_retries:
+                _refuse(db, p, now, w.session, "LIVENESS_FAILED", ip, dev_id, 403,
+                        "We could not confirm a live face. Face a light, hold the phone steady and try again.")
+            auto_flag = f"Photo check: the selfie looked like a photo or a screen ({int(live * 100)}% live)"
+
     if db.scalar(select(Mark.id).where(Mark.person_id == p.id, Mark.date == today, Mark.session == w.session)):
         _refuse(db, p, now, w.session, "ALREADY_MARKED", ip, dev_id, 409,
                 f"{w.label} attendance is already marked.")
     selfie = _save_selfie(p.id, today, w.session, raw_selfie) if raw_selfie else ""
     db.add(Mark(person_id=p.id, date=today, session=w.session, marked_at=now, device_id=dev_id, client_ip=ip,
-                near_gate=near_gate, ble_rssi=body.ble_rssi if body and near_gate else None, selfie_path=selfie))
+                near_gate=near_gate, ble_rssi=body.ble_rssi if body and near_gate else None, used_qr=used_qr,
+                selfie_path=selfie,
+                live_score=live,
+                flagged_at=now if auto_flag else None, flagged_by="auto" if auto_flag else "",
+                flag_note=auto_flag))
+    if auto_flag:
+        _send_to_office(db, p.id, today, w.session, now, auto_flag)
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
         raise api_error(409, "ALREADY_MARKED", f"{w.label} attendance is already marked.")
+
+    if auto_flag:
+        return {"ok": True, "session": w.session, "label": w.label, "marked_at": now.strftime("%H:%M"),
+                "face_status": face_status, "match_pct": match_pct, "qr_status": qr_status, "near_gate": near_gate,
+                "sent_to_office": True,
+                "message": f"{w.label}: saved, but the photo check failed, so the attendance office will check it.",
+                "today": _today_payload(db, p, now)}
 
     qr_note = " & Guard QR Verified" if qr_status == "Verified" else ""
     if face_status == "Enrolled":
@@ -622,6 +664,7 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
 
     return {"ok": True, "session": w.session, "label": w.label, "marked_at": now.strftime("%H:%M"),
             "face_status": face_status, "match_pct": match_pct, "qr_status": qr_status, "near_gate": near_gate,
+            "sent_to_office": bool(auto_flag), "live_score": round(live, 3) if live is not None else None,
             "message": msg,
             "today": _today_payload(db, p, now)}
 

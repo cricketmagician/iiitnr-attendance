@@ -91,6 +91,9 @@ def env():
     s.require_face = False
     s.require_ble = False
     s.keep_mark_selfies = True
+    s.liveness_mode = "review"
+    s.liveness_retries = 2
+    s.liveness_threshold = 0.5
     s.upload_dir = tempfile.mkdtemp(prefix="att-test-")
     s.trust_proxy = True
     s.jwt_secret = "test-secret-0123456789-abcdefghijklmnop"

@@ -10,6 +10,8 @@ import 'package:flutter/services.dart';
 class AttendanceConfirmScreen extends StatelessWidget {
   final String base64FaceImage;
   final String qrToken;
+  /// How the phone proved it is at the guard desk: 'bluetooth' or 'qr'.
+  final String proof;
   final String sessionLabel;
   final Map<String, dynamic>? scholarInfo;
 
@@ -17,6 +19,7 @@ class AttendanceConfirmScreen extends StatelessWidget {
     super.key,
     required this.base64FaceImage,
     required this.qrToken,
+    this.proof = 'qr',
     required this.sessionLabel,
     this.scholarInfo,
   });
@@ -72,7 +75,7 @@ class AttendanceConfirmScreen extends StatelessWidget {
                     Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 16),
                     SizedBox(width: 8),
                     Text(
-                      'Step 3 of 3 • Identity & QR Verification',
+                      'Last step • Check your selfie',
                       style: TextStyle(
                         color: Color(0xFF065F46),
                         fontWeight: FontWeight.w700,
@@ -150,17 +153,18 @@ class AttendanceConfirmScreen extends StatelessWidget {
                           ),
                         ],
                       ),
-                      child: const Column(
+                      child: Column(
                         children: [
-                          Icon(Icons.shield_rounded, color: Color(0xFF2563EB), size: 24),
-                          SizedBox(height: 6),
-                          Text(
-                            'Guard QR',
+                          Icon(proof == 'bluetooth' ? Icons.bluetooth_connected_rounded : Icons.qr_code_2_rounded,
+                              color: const Color(0xFF2563EB), size: 24),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Guard desk',
                             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                           ),
                           Text(
-                            'Token Validated ✅',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFF059669)),
+                            proof == 'bluetooth' ? 'Signal found ✅' : 'QR scanned ✅',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFF059669)),
                           ),
                         ],
                       ),
