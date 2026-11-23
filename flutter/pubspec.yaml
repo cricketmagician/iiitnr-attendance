@@ -40,6 +40,9 @@ dependencies:
   qr_flutter: ^4.1.0
   camera_android: ^0.10.10
   google_fonts: ^6.2.1
+  flutter_blue_plus: 1.32.12
+  flutter_ble_peripheral: ^1.2.6
+  permission_handler: ^12.0.3
 
 dev_dependencies:
   flutter_test:

@@ -112,3 +112,52 @@ def verify_guard_qr(
         return False, "Guard QR Code expired (rotates every 3s). Please scan the live QR code again."
 
     return True, "Valid Guard QR code."
+
+
+# ---------------------------------------------------------------- Bluetooth beacon
+#
+# The guard phone also broadcasts a Bluetooth LE beacon. Its 128-bit service UUID carries
+# a short-lived signed token: a video call can carry the QR, but not the Bluetooth signal,
+# so a scholar far from the gate cannot pick it up. A service UUID (not manufacturer data)
+# is used because iPhones can only advertise service UUIDs and a local name.
+#
+# UUID bytes: 4-byte marker | 4-byte slot (big-endian) | 8-byte HMAC tag
+
+import uuid as _uuid
+
+BLE_MARKER = bytes.fromhex("49494e52")  # "IINR"
+BLE_SLOT_SECONDS = 15
+# Slots accepted: the scholar scans the beacon, then the QR, then takes a selfie.
+BLE_MAX_AGE_SLOTS = 3
+
+
+def _ble_tag(slot: int) -> bytes:
+    return hmac.new(_qr_key(), f"IIITNR-BLE:{slot}".encode(), hashlib.sha256).digest()[:8]
+
+
+def ble_beacon(now: Optional[float] = None) -> Dict[str, Any]:
+    """The service UUID the guard phone should advertise right now."""
+    t = int(now if now is not None else time.time())
+    slot = t // BLE_SLOT_SECONDS
+    raw = BLE_MARKER + (slot & 0xFFFFFFFF).to_bytes(4, "big") + _ble_tag(slot)
+    return {"uuid": str(_uuid.UUID(bytes=raw)), "slot": slot,
+            "seconds_remaining": BLE_SLOT_SECONDS - (t % BLE_SLOT_SECONDS)}
+
+
+def verify_ble(beacon_uuid: str, now: Optional[float] = None) -> Tuple[bool, str]:
+    """Check a beacon UUID the scholar's phone heard."""
+    try:
+        raw = _uuid.UUID(str(beacon_uuid)).bytes
+    except (ValueError, AttributeError, TypeError):
+        return False, "The guard desk signal could not be read."
+    if raw[:4] != BLE_MARKER:
+        return False, "That is not the guard desk signal."
+    slot = int.from_bytes(raw[4:8], "big")
+    t = int(now if now is not None else time.time())
+    current = (t // BLE_SLOT_SECONDS) & 0xFFFFFFFF
+    age = current - slot
+    if age < -1 or age > BLE_MAX_AGE_SLOTS:
+        return False, "The guard desk signal is too old. Stand near the guard desk and try again."
+    if not hmac.compare_digest(raw[8:], _ble_tag(slot)):
+        return False, "The guard desk signal is not valid."
+    return True, "ok"

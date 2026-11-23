@@ -23,7 +23,8 @@ def marks_by_day(db: Session, person_ids: list[int], a: dt.date, b: dt.date) -> 
     out: dict[tuple[int, dt.date], dict] = {}
     if not person_ids:
         return out
-    for m in db.scalars(select(Mark).where(Mark.person_id.in_(person_ids), Mark.date >= a, Mark.date <= b)).all():
+    for m in db.scalars(select(Mark).where(Mark.person_id.in_(person_ids), Mark.date >= a, Mark.date <= b,
+                                           Mark.flagged_at.is_(None))).all():
         out.setdefault((m.person_id, m.date), {})[m.session] = m.marked_at.strftime("%H:%M")
     return out
 

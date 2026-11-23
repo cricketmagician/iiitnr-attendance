@@ -24,6 +24,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Bluetooth confirms you are at the guard desk when you mark attendance, and lets the guard phone send its signal.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>The guard phone sends a Bluetooth signal so scholars at the desk can mark attendance.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Camera access is required to capture a selfie for AI-based face attendance verification.</string>
 	<key>NSFaceIDUsageDescription</key>

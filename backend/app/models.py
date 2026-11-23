@@ -125,6 +125,15 @@ class Mark(Base):
     marked_at: Mapped[dt.datetime] = mapped_column(DateTime)
     device_id: Mapped[str] = mapped_column(String(64))
     client_ip: Mapped[str] = mapped_column(String(64))
+    # Proximity and evidence
+    near_gate: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)   # heard the guard beacon
+    ble_rssi: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    selfie_path: Mapped[str] = mapped_column(String(300), default="", server_default="")
+    # A guard who saw nobody at the desk flags the mark; it then stops counting until the office decides.
+    flagged_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime, nullable=True)
+    flagged_by: Mapped[str] = mapped_column(String(190), default="", server_default="")
+    flag_note: Mapped[str] = mapped_column(String(300), default="", server_default="")
+    person: Mapped["Person"] = relationship()
 
 
 class Attempt(Base):

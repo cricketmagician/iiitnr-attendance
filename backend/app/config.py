@@ -1,6 +1,8 @@
 """Service settings, read from environment variables (prefix ATT_) or a .env file."""
 from functools import lru_cache
 
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,6 +46,11 @@ class Settings(BaseSettings):
     # Marking requires a scanned guard QR and a live selfie.
     require_guard_qr: bool = True
     require_face: bool = True
+    # Bluetooth beacon from the guard phone. None = required outside dev mode, optional in dev mode
+    # (in dev mode a beacon that is sent is still checked).
+    require_ble: Optional[bool] = None
+    # Keep each attendance selfie so the guard and office can see who marked.
+    keep_mark_selfies: bool = True
 
     # Campus network check. If the API sits behind a reverse proxy (nginx),
     # set trust_proxy=true so the client IP is read from X-Forwarded-For.

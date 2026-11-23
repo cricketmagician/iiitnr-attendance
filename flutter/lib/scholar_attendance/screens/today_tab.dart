@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../api.dart';
 import '../attendance_confirm_screen.dart';
 import '../face_check.dart';
+import '../proximity.dart';
 import '../qr_scanner_screen.dart';
 import '../reminders.dart';
 import '../ui_common.dart';
@@ -64,6 +65,23 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
     final open = sessions.where((s) => s['state'] == 'open').toList();
     final label = open.isNotEmpty ? (open.first['label'] as String? ?? 'Session') : 'Attendance';
 
+    // Listen for the guard desk's Bluetooth signal the whole time (it proves the phone is at the desk)
+    final scanner = GateScanner();
+    await scanner.start();
+    if (!mounted) return scanner.stop();
+    if (scanner.problem == ScanProblem.bluetoothOff) {
+      showMessage(context, 'Turn on Bluetooth. The guard desk signal is needed to mark attendance.');
+    } else if (scanner.problem == ScanProblem.noPermission) {
+      showMessage(context, 'Allow Bluetooth (Nearby devices) for this app to mark attendance.');
+    }
+    try {
+      await _markWith(scanner, label);
+    } finally {
+      scanner.stop();
+    }
+  }
+
+  Future<void> _markWith(GateScanner scanner, String label) async {
     // Step 1: scan the guard desk's rotating QR code
     final qrToken = await Navigator.push<String>(
       context,
@@ -97,7 +115,13 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
 
     setState(() => busy = true);
     try {
-      final r = await widget.api.post('/att/mark', {'face_image': base64Image, 'qr_token': qrToken});
+      final hit = await scanner.latest(wait: const Duration(seconds: 4));
+      final r = await widget.api.post('/att/mark', {
+        'face_image': base64Image,
+        'qr_token': qrToken,
+        if (hit != null) 'ble_uuid': hit.uuid,
+        if (hit != null) 'ble_rssi': hit.rssi,
+      });
       if (!mounted) return;
       setState(() => today = r['today'] as Map<String, dynamic>);
       _showSuccess(r as Map, label);
@@ -141,6 +165,12 @@ class _TodayTabState extends State<TodayTab> with WidgetsBindingObserver {
             const SizedBox(height: 16),
             const Divider(),
             DetailRow(icon: Icons.schedule_rounded, label: 'Marked at', value: r['marked_at']?.toString() ?? '—'),
+            if (r['near_gate'] == true)
+              const DetailRow(
+                  icon: Icons.bluetooth_connected_rounded,
+                  label: 'Guard desk',
+                  value: 'Signal found',
+                  valueColor: AppColors.success),
             DetailRow(
               icon: Icons.qr_code_2_rounded,
               label: 'Guard QR',

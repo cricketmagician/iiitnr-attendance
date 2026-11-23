@@ -2,6 +2,7 @@ import base64
 import datetime as dt
 import hashlib
 import json
+import tempfile
 import os
 import secrets
 import time
@@ -88,6 +89,9 @@ def env():
     # Most tests check other rules; QR/face requirements have their own tests.
     s.require_guard_qr = False
     s.require_face = False
+    s.require_ble = False
+    s.keep_mark_selfies = True
+    s.upload_dir = tempfile.mkdtemp(prefix="att-test-")
     s.trust_proxy = True
     s.jwt_secret = "test-secret-0123456789-abcdefghijklmnop"
     s.jwt_algorithm = "HS256"

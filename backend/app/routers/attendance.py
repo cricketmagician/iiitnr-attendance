@@ -4,9 +4,13 @@ from __future__ import annotations
 import datetime as dt
 import hmac
 import json
+import os
+import secrets
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -17,7 +21,7 @@ from ..config import get_settings
 from ..daybook import MIN_SESSIONS, month_grid
 from ..db import get_db
 from ..face_service import generate_face_embedding, parse_and_validate_face_image, verify_face
-from ..qr_service import generate_guard_qr, verify_guard_qr
+from ..qr_service import ble_beacon, generate_guard_qr, verify_ble, verify_guard_qr
 from ..models import Attempt, DayReview, Device, Mark, Person
 from ..rules import covered_by_leave
 from ..security import (Actor, actor, api_error, audit, check_signature, client_ip, current_person, on_campus,
@@ -203,6 +207,42 @@ def _refuse(db: Session, person: Person, now: dt.datetime, session: str, reason:
 class MarkIn(BaseModel):
     face_image: Optional[str] = None
     qr_token: Optional[str] = None
+    # Bluetooth beacon the phone heard from the guard desk, and its signal strength
+    ble_uuid: Optional[str] = Field(default=None, max_length=40)
+    ble_rssi: Optional[int] = Field(default=None, ge=-127, le=20)
+
+
+def ble_required() -> bool:
+    s = get_settings()
+    return s.require_ble if s.require_ble is not None else not s.dev_mode
+
+
+def _save_selfie(person_id: int, day: dt.date, session: str, raw: bytes) -> str:
+    """Keep a small copy of the attendance selfie for the guard feed and the office."""
+    s = get_settings()
+    if not s.keep_mark_selfies:
+        return ""
+    data = raw
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+        if img is not None:
+            h, w = img.shape[:2]
+            scale = 320 / max(h, w)
+            if scale < 1:
+                img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ok:
+                data = buf.tobytes()
+    except Exception:
+        pass
+    folder = os.path.join(s.upload_dir, "selfies", day.isoformat())
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"{person_id}_{session}_{secrets.token_hex(4)}.jpg")
+    with open(path, "wb") as fh:
+        fh.write(data)
+    return path
 
 
 def _kiosk_allowed(request: Request, db: Session) -> bool:
@@ -238,7 +278,108 @@ def guard_qr(request: Request, db: Session = Depends(get_db), clk: Clock = Depen
     data = generate_guard_qr(session_name)
     data["session_label"] = w.label if w else "Morning"
     data["window_open"] = w is not None
+    data["ble"] = ble_beacon()
     return data
+
+
+# ---------------------------------------------------------------- guard live feed
+
+SESSION_LABELS = {"M": "Morning", "A": "Afternoon", "E": "Evening"}
+
+
+def _guard_or_403(request: Request, db: Session) -> str:
+    """Who is acting at the guard desk: the guard/admin email, or 'kiosk' for the kiosk key."""
+    if not _kiosk_allowed(request, db):
+        raise api_error(403, "KIOSK_ONLY", "Only the guard desk can see this.")
+    if request.headers.get("Authorization", "").startswith("Bearer "):
+        try:
+            return current_person(request, db).email
+        except HTTPException:
+            pass
+    return "kiosk"
+
+
+def mark_json(m: Mark) -> dict:
+    p = m.person
+    return {
+        "id": m.id, "name": p.name, "roll_no": p.roll_no, "programme": p.programme, "department": p.department,
+        "session": m.session, "session_label": SESSION_LABELS.get(m.session, m.session),
+        "time": m.marked_at.strftime("%H:%M:%S"), "near_gate": m.near_gate, "rssi": m.ble_rssi,
+        "has_selfie": bool(m.selfie_path), "flagged": m.flagged_at is not None, "flag_note": m.flag_note,
+    }
+
+
+@router.get("/guard/feed")
+def guard_feed(request: Request, db: Session = Depends(get_db), clk: Clock = Depends(get_clock)):
+    """Latest marks today, newest first, so the guard can see who just marked."""
+    _guard_or_403(request, db)
+    today = clk.now().date()
+    rows = db.scalars(select(Mark).where(Mark.date == today).order_by(Mark.marked_at.desc(), Mark.id.desc())
+                      .limit(40)).all()
+    return {"date": today.isoformat(), "marks": [mark_json(m) for m in rows]}
+
+
+@router.get("/guard/marks/{mark_id}/selfie")
+def guard_selfie(mark_id: int, request: Request, db: Session = Depends(get_db)):
+    _guard_or_403(request, db)
+    m = db.get(Mark, mark_id)
+    if m is None or not m.selfie_path or not os.path.exists(m.selfie_path):
+        raise api_error(404, "NO_SELFIE", "No photo for this mark.")
+    return FileResponse(m.selfie_path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+
+class FlagIn(BaseModel):
+    note: str = Field(default="", max_length=300)
+
+
+FLAG_PREFIX = "Guard flagged"
+
+
+@router.post("/guard/marks/{mark_id}/flag")
+def flag_mark(mark_id: int, body: FlagIn, request: Request, db: Session = Depends(get_db),
+              clk: Clock = Depends(get_clock)):
+    """The guard saw nobody at the desk for this mark. It stops counting and goes to the office."""
+    who = _guard_or_403(request, db)
+    now = clk.now()
+    m = db.get(Mark, mark_id)
+    if m is None:
+        raise api_error(404, "NOT_FOUND", "No such mark.")
+    if m.flagged_at is None:
+        m.flagged_at, m.flagged_by, m.flag_note = now, who, body.note.strip()
+        remark = f"{FLAG_PREFIX} {SESSION_LABELS.get(m.session, m.session)} mark at {m.marked_at:%H:%M}" + \
+                 (f": {body.note.strip()}" if body.note.strip() else ".")
+        r = db.scalar(select(DayReview).where(DayReview.person_id == m.person_id, DayReview.date == m.date))
+        if r is None:
+            others = "".join(x.session for x in db.scalars(select(Mark).where(
+                Mark.person_id == m.person_id, Mark.date == m.date, Mark.id != m.id, Mark.flagged_at.is_(None))).all())
+            db.add(DayReview(person_id=m.person_id, date=m.date, sessions_marked=others, status="pending",
+                             remark=remark, created_at=now))
+        else:
+            r.status = "pending"
+            r.remark = (r.remark + "\n" if r.remark else "") + remark
+        audit(db, now, who, "mark.flag", str(m.id), body.note.strip())
+        db.commit()
+    return mark_json(m)
+
+
+@router.post("/guard/marks/{mark_id}/unflag")
+def unflag_mark(mark_id: int, request: Request, db: Session = Depends(get_db), clk: Clock = Depends(get_clock)):
+    """Undo a flag tapped by mistake (only while the office has not decided)."""
+    who = _guard_or_403(request, db)
+    now = clk.now()
+    m = db.get(Mark, mark_id)
+    if m is None:
+        raise api_error(404, "NOT_FOUND", "No such mark.")
+    if m.flagged_at is not None:
+        r = db.scalar(select(DayReview).where(DayReview.person_id == m.person_id, DayReview.date == m.date))
+        if r is not None and r.status != "pending":
+            raise api_error(409, "ALREADY_DECIDED", "The office has already decided this day.")
+        m.flagged_at, m.flagged_by, m.flag_note = None, "", ""
+        if r is not None and r.remark.startswith(FLAG_PREFIX) and "\n" not in r.remark:
+            db.delete(r)
+        audit(db, now, who, "mark.unflag", str(m.id))
+        db.commit()
+    return mark_json(m)
 
 
 class EnrolFaceIn(BaseModel):
@@ -415,12 +556,27 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
             _refuse(db, p, now, w.session, "INVALID_GUARD_QR", ip, dev_id, 403, reason)
         qr_status = "Verified"
 
+    # Bluetooth beacon: proves the phone is near the guard desk (a video call cannot carry it)
+    near_gate = None
+    if body and body.ble_uuid:
+        ok, reason = verify_ble(body.ble_uuid, time.time())
+        if not ok:
+            _refuse(db, p, now, w.session, "BLE_INVALID", ip, dev_id, 403, reason)
+        near_gate = True
+    elif ble_required():
+        _refuse(db, p, now, w.session, "BLE_REQUIRED", ip, dev_id, 403,
+                "Turn on Bluetooth and stand near the guard desk, then try again.")
+    else:
+        near_gate = False
+
     # AI Face Verification Check
     face_status = "Skipped"
+    raw_selfie = None
     match_pct = 0
     if body and body.face_image:
         try:
             raw = parse_and_validate_face_image(body.face_image)
+            raw_selfie = raw
             vec = generate_face_embedding(raw)
             if p.face_embedding is None:
                 # First time: Enrol this selfie as scholar's registered reference face template!
@@ -447,7 +603,9 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
     if db.scalar(select(Mark.id).where(Mark.person_id == p.id, Mark.date == today, Mark.session == w.session)):
         _refuse(db, p, now, w.session, "ALREADY_MARKED", ip, dev_id, 409,
                 f"{w.label} attendance is already marked.")
-    db.add(Mark(person_id=p.id, date=today, session=w.session, marked_at=now, device_id=dev_id, client_ip=ip))
+    selfie = _save_selfie(p.id, today, w.session, raw_selfie) if raw_selfie else ""
+    db.add(Mark(person_id=p.id, date=today, session=w.session, marked_at=now, device_id=dev_id, client_ip=ip,
+                near_gate=near_gate, ble_rssi=body.ble_rssi if body and near_gate else None, selfie_path=selfie))
     try:
         db.commit()
     except IntegrityError:
@@ -463,7 +621,7 @@ def mark(request: Request, body: Optional[MarkIn] = None, a: Actor = Depends(req
         msg = f"{w.label}: marked present at {now:%I:%M %p}."
 
     return {"ok": True, "session": w.session, "label": w.label, "marked_at": now.strftime("%H:%M"),
-            "face_status": face_status, "match_pct": match_pct, "qr_status": qr_status,
+            "face_status": face_status, "match_pct": match_pct, "qr_status": qr_status, "near_gate": near_gate,
             "message": msg,
             "today": _today_payload(db, p, now)}
 
